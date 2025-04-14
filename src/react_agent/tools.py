@@ -14,6 +14,7 @@ from langchain_core.tools import InjectedToolArg
 from typing_extensions import Annotated
 
 from react_agent.configuration import Configuration
+from react_agent.market_analyst.twelve_data.get_time_series import get_time_series
 
 
 async def search(
@@ -31,4 +32,4 @@ async def search(
     return cast(list[dict[str, Any]], result)
 
 
-TOOLS: List[Callable[..., Any]] = [search]
+TOOLS: List[Callable[..., Any]] = [search, get_time_series]

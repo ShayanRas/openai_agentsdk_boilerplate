@@ -17,8 +17,6 @@ from react_agent.tools import TOOLS
 from react_agent.utils import load_chat_model
 
 # Define the function that calls the model
-
-
 async def call_model(
     state: State, config: RunnableConfig
 ) -> Dict[str, List[AIMessage]]:

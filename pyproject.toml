@@ -17,6 +17,9 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "langchain-community>=0.2.17",
     "tavily-python>=0.4.0",
+    "matplotlib",
+    "mplfinance",
+    "pandas",
 ]
 
 
