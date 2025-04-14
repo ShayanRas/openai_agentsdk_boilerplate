@@ -2,13 +2,12 @@ from twelvedata import TDClient
 import os
 import dotenv
 from typing import List, Dict, Any
+import asyncio
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import InjectedToolArg
 from typing_extensions import Annotated
 
 dotenv.load_dotenv()
-
-td = TDClient(apikey=os.getenv("TWELVEDATA_API_KEY"))
 
 async def get_time_series(
     symbol: str,
@@ -33,5 +32,16 @@ async def get_time_series(
         A list of dictionaries, where each dictionary represents a data point
         with keys like 'datetime', 'open', 'high', 'low', 'close', 'volume'.
     """
-    timeseries = td.time_series(symbol=symbol, interval=interval, outputsize=output_size)
-    return timeseries.as_json()
+    # Define a synchronous helper function to run in the thread
+    def _get_and_convert():
+        # Instantiate client *inside* the thread function
+        td = TDClient(apikey=os.getenv("TWELVE_DATA_API_KEY"))
+        timeseries = td.time_series(
+            symbol=symbol, interval=interval, outputsize=output_size
+        )
+        return timeseries.as_json()
+
+    # Run the helper function in a separate thread
+    json_result = await asyncio.to_thread(_get_and_convert)
+
+    return json_result
