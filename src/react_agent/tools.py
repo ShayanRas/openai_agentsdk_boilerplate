@@ -15,6 +15,7 @@ from typing_extensions import Annotated
 
 from react_agent.configuration import Configuration
 from react_agent.market_analyst.twelve_data.get_time_series import get_time_series
+from react_agent.market_analyst.alpha_vantage.get_econ_data import av_get_econ_data
 
 
 async def search(
@@ -32,4 +33,4 @@ async def search(
     return cast(list[dict[str, Any]], result)
 
 
-TOOLS: List[Callable[..., Any]] = [search, get_time_series]
+TOOLS: List[Callable[..., Any]] = [search, get_time_series, av_get_econ_data]
