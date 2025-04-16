@@ -4,6 +4,7 @@ Works with a chat model with tool calling support.
 """
 
 from datetime import datetime, timezone
+import logging
 from typing import Dict, List, Literal, cast
 
 from langchain_core.messages import AIMessage
@@ -12,9 +13,14 @@ from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolNode
 
 from react_agent.configuration import Configuration
+from react_agent.database.connection import initialize_db_pool
 from react_agent.state import InputState, State
 from react_agent.tools import TOOLS
 from react_agent.utils import load_chat_model
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Define the function that calls the model
 async def call_model(
@@ -111,6 +117,13 @@ builder.add_conditional_edges(
 # Add a normal edge from `tools` to `call_model`
 # This creates a cycle: after using tools, we always return to the model
 builder.add_edge("tools", "call_model")
+
+# Initialize the database connection pool
+# The initialize_db_pool function now handles errors internally
+# and returns None if initialization fails
+pool = initialize_db_pool()
+if pool is None:
+    logger.warning("Database functionality will be limited or unavailable")
 
 # Compile the builder into an executable graph
 # You can customize this by adding interrupt points for state updates

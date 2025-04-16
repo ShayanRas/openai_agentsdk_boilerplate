@@ -14,6 +14,7 @@ from langchain_core.tools import InjectedToolArg
 from typing_extensions import Annotated
 
 from react_agent.configuration import Configuration
+from react_agent.database.tools import db_query, db_get_tables, db_get_table_schema
 from react_agent.market_analyst.twelve_data.get_time_series import get_time_series
 from react_agent.market_analyst.alpha_vantage.get_econ_data import av_get_econ_data
 
@@ -33,4 +34,11 @@ async def search(
     return cast(list[dict[str, Any]], result)
 
 
-TOOLS: List[Callable[..., Any]] = [search, get_time_series, av_get_econ_data]
+TOOLS: List[Callable[..., Any]] = [
+    search, 
+    get_time_series, 
+    av_get_econ_data,
+    db_query,
+    db_get_tables,
+    db_get_table_schema,
+]
