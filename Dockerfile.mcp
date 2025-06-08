@@ -1,0 +1,28 @@
+# MCP Server Dockerfile
+FROM python:3.11-slim
+
+# Set environment variables for Python
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Copy the requirements file for the MCP service
+COPY requirements.mcp.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.mcp.txt
+
+# Copy the application code for the MCP service
+COPY test_mcp_server.py .
+
+# Set environment variables for host and port (for mcp_server.run() fallback)
+ENV HOST 0.0.0.0
+ENV PORT 8000
+
+# Expose port for the MCP server
+EXPOSE 8000
+
+# Command to run the MCP server directly using python
+CMD ["python", "test_mcp_server.py"]

@@ -1,0 +1,36 @@
+
+services:
+  agent_app:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: marketguru_agent_app
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    volumes:
+      - ./api_history_threads:/app/api_history_threads
+      - ./text_history_threads:/app/text_history_threads
+      - ./api_main.py:/app/api_main.py  # For live reload
+      - ./instructions.py:/app/instructions.py # For live reload
+    depends_on:
+      - mcp_server
+    networks:
+      - app_network
+
+  mcp_server:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    container_name: marketguru_mcp_server
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./test_mcp_server.py:/app/test_mcp_server.py # For live reload (if server supports it)
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge

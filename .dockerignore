@@ -1,0 +1,43 @@
+# Git files
+.git
+.gitignore
+
+# Python virtual environment
+.venv
+venv/
+ENV/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE and editor specific files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Docker files (if they are in the context but not needed in image)
+# Dockerfile
+# .dockerignore
+# start.sh - no, this IS needed
+
+# History directories (these will be created inside the container or mounted as volumes)
+api_history_threads/
+text_history_threads/
+
+# Test reports and coverage data
+htmlcov/
+.coverage
+.pytest_cache/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/

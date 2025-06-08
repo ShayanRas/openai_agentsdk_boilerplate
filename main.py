@@ -146,7 +146,7 @@ async def main(history_mode: str, thread_id: Optional[str] = None):
     agent_hooks = CustomAgentHooks(display_name="Boiletplate_Agent_NonStream")
     # --- Initialize MCP Streamable HTTP Server Connection ---
     # TODO: Consider making mcp_server_url configurable (e.g., via environment variable or settings file)
-    mcp_server_url = "http://127.0.0.1:8000/mcp" 
+    mcp_server_url = "http://mcp_server:8000/mcp" # Changed for Docker inter-container communication 
     mcp_params = MCPServerStreamableHttpParams(url=mcp_server_url)
     
     # The MCP server client will be active within this 'async with' block
@@ -237,7 +237,7 @@ async def main_stream(history_mode: str, thread_id: Optional[str] = None):
     agent_hooks_stream = CustomAgentHooks(display_name="Boiletplate_Agent_Streamed")
 
     # --- Initialize MCP Streamable HTTP Server Connection ---
-    mcp_server_url = "http://127.0.0.1:8000/mcp"
+    mcp_server_url = "http://mcp_server:8000/mcp" # Changed for Docker inter-container communication
     mcp_params = MCPServerStreamableHttpParams(url=mcp_server_url)
 
     async with MCPServerStreamableHttp(

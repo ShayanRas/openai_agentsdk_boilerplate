@@ -1,65 +1,194 @@
-import datetime
+import os
 import logging
+import contextlib
+from collections.abc import AsyncIterator
+import datetime
 
-# Attempt to import FastMCP. Users might need to install mcp-server-framework
-# pip install mcp-server-framework
-try:
-    from mcp.server.fastmcp import FastMCP
-except ImportError:
-    print("Error: FastMCP not found. Please install mcp-server-framework: pip install mcp-server-framework")
-    exit(1)
+import mcp.types as types
+from mcp.server.lowlevel import Server as LowLevelMCPAPIServer # Renamed to avoid conflict
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.streamable_http import EventStore, EventCallback, EventId, EventMessage, StreamId # For InMemoryEventStore base types
+from mcp.types import JSONRPCMessage # For InMemoryEventStore
 
-# Configure basic logging for the server
-logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s] %(message)s')
+from starlette.applications import Starlette
+from starlette.routing import Mount
+from starlette.types import Receive, Scope, Send
+import uvicorn
+
+# --- Environment Variables ---
+SERVER_HOST = os.getenv("HOST", "0.0.0.0")
+SERVER_PORT = int(os.getenv("PORT", "8000"))
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+# --- Logging Configuration ---
+logging.basicConfig(
+    level=LOG_LEVEL,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
 
-# --- Create FastMCP server instance ---
-mcp_server = FastMCP(
-    name="MyLocalTestServer",
-    version="0.1.0",
-    description="A local test MCP server for agent integration."
+# --- Simple In-Memory Event Store (from example, for resumability if needed) ---
+from collections import deque
+from dataclasses import dataclass
+from uuid import uuid4
+
+@dataclass
+class EventEntry:
+    event_id: EventId
+    stream_id: StreamId
+    message: JSONRPCMessage
+
+class InMemoryEventStore(EventStore):
+    def __init__(self, max_events_per_stream: int = 100):
+        self.max_events_per_stream = max_events_per_stream
+        self.streams: dict[StreamId, deque[EventEntry]] = {}
+        self.event_index: dict[EventId, EventEntry] = {}
+
+    async def store_event(
+        self, stream_id: StreamId, message: JSONRPCMessage
+    ) -> EventId:
+        event_id = str(uuid4())
+        event_entry = EventEntry(
+            event_id=event_id, stream_id=stream_id, message=message
+        )
+        if stream_id not in self.streams:
+            self.streams[stream_id] = deque(maxlen=self.max_events_per_stream)
+        if len(self.streams[stream_id]) == self.max_events_per_stream:
+            oldest_event = self.streams[stream_id][0]
+            self.event_index.pop(oldest_event.event_id, None)
+        self.streams[stream_id].append(event_entry)
+        self.event_index[event_id] = event_entry
+        return event_id
+
+    async def replay_events_after(
+        self,
+        last_event_id: EventId,
+        send_callback: EventCallback,
+    ) -> StreamId | None:
+        if last_event_id not in self.event_index:
+            logger.warning(f"Event ID {last_event_id} not found in store")
+            return None
+        last_event = self.event_index[last_event_id]
+        stream_id = last_event.stream_id
+        stream_events = self.streams.get(last_event.stream_id, deque())
+        found_last = False
+        for event in stream_events:
+            if found_last:
+                await send_callback(EventMessage(event.message, event.event_id))
+            elif event.event_id == last_event_id:
+                found_last = True
+        return stream_id
+
+# --- MCP Application Setup ---
+mcp_app = LowLevelMCPAPIServer("MyLowLevelTestServer")
+
+@mcp_app.list_tools()
+async def list_tools() -> list[types.Tool]:
+    logger.info("list_tools called")
+    return [
+        types.Tool(
+            name="echo",
+            description="Echoes the input message back to the caller.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "description": "The message to echo."}
+                },
+                "required": ["message"],
+            },
+        ),
+        types.Tool(
+            name="add",
+            description="Adds two integers and returns the result.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "a": {"type": "integer", "description": "The first number."},
+                    "b": {"type": "integer", "description": "The second number."},
+                },
+                "required": ["a", "b"],
+            },
+        ),
+        types.Tool(
+            name="get_server_time",
+            description="Returns the current server time as an ISO 8601 string.",
+            inputSchema={"type": "object", "properties": {}}, # No input properties
+        ),
+    ]
+
+@mcp_app.call_tool()
+async def call_tool(
+    name: str, arguments: dict
+) -> list[
+    types.TextContent
+    | types.ImageContent
+    # | types.AudioContent # Temporarily removed due to AttributeError
+    | types.EmbeddedResource
+]:
+    ctx = mcp_app.request_context # Get context for sending logs, etc.
+    logger.info(f"call_tool called for tool: '{name}' with arguments: {arguments}")
+    
+    # Send a log message associated with this request
+    await ctx.session.send_log_message(
+        level="info",
+        data=f"Executing tool '{name}'",
+        logger="tool_executor",
+        related_request_id=ctx.request_id,
+    )
+
+    if name == "echo":
+        message = arguments.get("message", "No message provided")
+        logger.info(f"Tool 'echo' implementation: echoing '{message}'")
+        return [types.TextContent(type="text", text=f"Echo: {message}")]
+    elif name == "add":
+        a = arguments.get("a", 0)
+        b = arguments.get("b", 0)
+        result = a + b
+        logger.info(f"Tool 'add' implementation: {a} + {b} = {result}")
+        return [types.TextContent(type="text", text=str(result))]
+    elif name == "get_server_time":
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        logger.info(f"Tool 'get_server_time' implementation: returning {now}")
+        return [types.TextContent(type="text", text=now)]
+    else:
+        logger.error(f"Unknown tool called: {name}")
+        # It's good practice to return an error structure if the MCP spec defines one
+        # For now, returning an empty list or a text error
+        return [types.TextContent(type="text", text=f"Error: Unknown tool '{name}'")]
+
+# --- ASGI Application Setup ---
+event_store = InMemoryEventStore()
+session_manager = StreamableHTTPSessionManager(
+    app=mcp_app,
+    event_store=event_store, # Enable resumability
+    json_response=False, # Use SSE by default
 )
 
-# --- Define Tools ---
-@mcp_server.tool()
-def echo(message: str) -> str:
-    """Echoes the input message back to the caller."""
-    logger.info(f"Tool 'echo' called with message: '{message}'")
-    return message
+async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
+    await session_manager.handle_request(scope, receive, send)
 
-@mcp_server.tool()
-def add(a: int, b: int) -> int:
-    """Adds two integers and returns the sum."""
-    logger.info(f"Tool 'add' called with a={a}, b={b}")
-    return a + b
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette) -> AsyncIterator[None]:
+    async with session_manager.run():
+        logger.info(f"Application started with StreamableHTTPSessionManager on {SERVER_HOST}:{SERVER_PORT}")
+        try:
+            yield
+        finally:
+            logger.info("Application shutting down...")
 
-@mcp_server.tool()
-def get_server_time() -> str:
-    """Returns the current UTC date and time of the server."""
-    logger.info(f"Tool 'get_server_time' called")
-    now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    return now_utc
+starlette_app = Starlette(
+    debug=LOG_LEVEL == "DEBUG", # Set Starlette debug mode based on log level
+    routes=[
+        Mount("/mcp", app=handle_streamable_http),
+    ],
+    lifespan=lifespan,
+)
 
-# --- Main execution block to run the server ---
 if __name__ == "__main__":
-    host = "127.0.0.1"
-    port = 8000  # Default port for FastMCP's streamable-http often is 8000
-    path = "/mcp"   # Default path for FastMCP's streamable-http
-
-    logger.info(f"Starting MyLocalTestServer (Streamable HTTP)...")
-    logger.info(f"MCP Endpoint will be available at: http://{host}:{port}{path}")
-    logger.info("Available tools: echo, add, get_server_time")
-    logger.info("Press Ctrl+C to stop the server.")
-
-    try:
-        # FastMCP's run method with streamable-http transport typically uses uvicorn.
-        # It should handle host, port, and path internally based on its defaults
-        # or allow overriding them. The example client connected to http://localhost:8000/mcp.
-        mcp_server.run(
-            transport="streamable-http",
-            # host=host, # FastMCP might take these from uvicorn args or have its own way
-            # port=port,
-            # path=path # FastMCP usually sets a default path like /mcp or /
-        )
-    except Exception as e:
-        logger.error(f"Failed to start the server: {e}", exc_info=True)
+    logger.info(f"Starting server on {SERVER_HOST}:{SERVER_PORT}")
+    uvicorn.run(
+        starlette_app,
+        host=SERVER_HOST,
+        port=SERVER_PORT,
+        log_level=LOG_LEVEL.lower() # Uvicorn uses lowercase log levels
+    )
