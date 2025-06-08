@@ -13,6 +13,7 @@ from agents import Agent, Runner, AgentHooks, Tool # RunContextWrapper removed a
 from agents.mcp import MCPServerStreamableHttp, MCPServerStreamableHttpParams
 from instructions import main_system_prompt
 from database import db_manager, ensure_db_initialized
+from openai_tools import get_all_tools, get_tools_by_type, get_safe_tools
 
 dotenv.load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -26,6 +27,8 @@ class InvokeRequest(BaseModel):
     user_id: Optional[str] = None 
     thread_id: Optional[str] = None
     history_mode: str # Expected values: "api", "local_text", "none"
+    enable_tools: bool = True  # Enable OpenAI tools
+    tool_types: Optional[List[str]] = None  # Optional specific tools
 
 class InvokeResponse(BaseModel):
     assistant_output: str
@@ -132,13 +135,21 @@ async def invoke_agent(request: InvokeRequest):
         cache_tools_list=True
     ) as mcp_http_server:
 
+        # Determine which tools to include
+        openai_tools = []
+        if request.enable_tools:
+            if request.tool_types:
+                openai_tools = get_tools_by_type(request.tool_types)
+            else:
+                openai_tools = get_all_tools()  # Use all tools by default
+
         agent = Agent[AgentCustomContext](
             name="FastAPIAgent",
             model="gpt-4.1", # TODO: Make model configurable
             instructions=main_system_prompt,
             hooks=agent_hooks,
-            tools=[],
-            mcp_servers=[mcp_http_server]
+            tools=openai_tools,  # Add OpenAI tools
+            mcp_servers=[mcp_http_server]  # Keep existing MCP integration
         )
 
         custom_context = AgentCustomContext(
@@ -232,13 +243,21 @@ async def invoke_agent_stream(request: InvokeRequest):
                 cache_tools_list=True
             ) as mcp_http_server:
                 
+                # Determine which tools to include for streaming
+                openai_tools = []
+                if request.enable_tools:
+                    if request.tool_types:
+                        openai_tools = get_tools_by_type(request.tool_types)
+                    else:
+                        openai_tools = get_all_tools()  # Use all tools by default
+
                 agent = Agent[AgentCustomContext](
                     name="FastAPIAgent_Stream",
                     model="gpt-4.1",
                     instructions=main_system_prompt,
                     hooks=agent_hooks,
-                    tools=[],
-                    mcp_servers=[mcp_http_server]
+                    tools=openai_tools,  # Add OpenAI tools
+                    mcp_servers=[mcp_http_server]  # Keep existing MCP integration
                 )
                 
                 custom_context = AgentCustomContext(
@@ -343,6 +362,31 @@ async def get_thread_history(thread_id: str, user_id: str):
     else:
         history = await db_manager.get_api_history(thread_id)
         return {"thread_id": thread_id, "history_type": "api", "history": history}
+
+# Tool management endpoints
+@app.get("/tools/available")
+async def list_available_tools():
+    """List all available OpenAI tools"""
+    return {
+        "tools": [
+            {"name": "web_search", "description": "Search the web for current information"},
+            {"name": "file_search", "description": "Search through uploaded documents"},
+            {"name": "code_interpreter", "description": "Execute Python code and analysis"},
+            {"name": "image_generation", "description": "Generate images from text prompts"},
+            {"name": "local_shell", "description": "Execute local shell commands"}
+        ],
+        "mcp_tools": [
+            {"name": "echo", "description": "Echo back messages"},
+            {"name": "add", "description": "Add two numbers"},
+            {"name": "get_server_time", "description": "Get current server time"}
+        ]
+    }
+
+@app.post("/invoke_with_tools")
+async def invoke_with_specific_tools(request: InvokeRequest):
+    """Invoke agent with specific tools enabled - same as /invoke but more explicit"""
+    # This endpoint does the same as /invoke but makes tool selection more explicit
+    return await invoke_agent(request)
 
 # Lifecycle management for database connections
 @app.on_event("startup")

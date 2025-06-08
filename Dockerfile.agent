@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir -r requirements.agent.txt
 COPY api_main.py .
 COPY instructions.py .
 COPY database.py .
+COPY openai_tools.py .
 # If AgentCustomContext or other shared models are in separate files, copy them too.
 # Assuming for now they are within api_main.py or instructions.py
 

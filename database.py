@@ -24,7 +24,8 @@ class DatabaseManager:
                 DATABASE_URL,
                 min_size=1,
                 max_size=10,
-                command_timeout=60
+                command_timeout=60,
+                statement_cache_size=0  # Disable prepared statements for pgbouncer compatibility
             )
             await self.ensure_schema()
     
