@@ -7,6 +7,7 @@ from typing import Any, Optional, List, Dict
 
 from agents import Agent, Runner, AgentHooks, Tool, RunContextWrapper # Added RunContextWrapper for potential future use in tools
 from pydantic import BaseModel
+from agents.mcp import MCPServerStreamableHttp, MCPServerStreamableHttpParams # MCP Import
 from instructions import main_system_prompt
 
 dotenv.load_dotenv()
@@ -129,10 +130,12 @@ class CustomAgentHooks(AgentHooks):
         self.event_counter += 1
         print(f"\r\n### ({self.display_name}) {self.event_counter}: Agent {agent.name} finished run.")
 
-    async def on_tool_start(self, context: Any, agent: Agent, tool: Tool, tool_input: Any) -> None:
+    async def on_tool_start(self, context: Any, agent: Agent, tool: Tool) -> None: # Removed tool_input
         self.event_counter += 1
         tool_name = getattr(tool, 'name', 'Unknown Tool')
-        print(f"\r\n### ({self.display_name}) {self.event_counter}: Agent {agent.name} starting tool: {tool_name} with input: {tool_input}")
+        # tool_input is not directly provided by this hook in this SDK version.
+        # If needed, it might be accessible via context or agent state, depending on SDK specifics.
+        print(f"\r\n### ({self.display_name}) {self.event_counter}: Agent {agent.name} starting tool: {tool_name}")
 
     async def on_tool_end(self, context: Any, agent: Agent, tool: Tool, result: str) -> None:
         self.event_counter += 1
@@ -141,142 +144,233 @@ class CustomAgentHooks(AgentHooks):
 
 async def main(history_mode: str, thread_id: Optional[str] = None):
     agent_hooks = CustomAgentHooks(display_name="Boiletplate_Agent_NonStream")
-    # Specify the custom context type for the Agent
-    agent = Agent[AgentCustomContext](name="Boiletplate_Agent", model="gpt-4.1", instructions=main_system_prompt, hooks=agent_hooks, tools=[])
+    # --- Initialize MCP Streamable HTTP Server Connection ---
+    # TODO: Consider making mcp_server_url configurable (e.g., via environment variable or settings file)
+    mcp_server_url = "http://127.0.0.1:8000/mcp" 
+    mcp_params = MCPServerStreamableHttpParams(url=mcp_server_url)
+    
+    # The MCP server client will be active within this 'async with' block
+    async with MCPServerStreamableHttp(
+        params=mcp_params,
+        name="MyLocalTestMCPServerClient_NonStream", # Unique name for this client instance
+        cache_tools_list=True  # Good for performance if tool list is static
+    ) as mcp_http_server:
 
-    # Initialize custom context
-    custom_context = AgentCustomContext(
-        session_start_time=datetime.now(timezone.utc).isoformat()
-    )
-    if thread_id:
-        custom_context.current_thread_id = thread_id
+        # TODO: Update main_system_prompt in instructions.py to inform the agent 
+        # about new tools available from the MCP server (e.g., echo, add, get_server_time).
+        # Example: "You have access to local tools and also tools from an external service:
+        #  - echo(message: str) -> str
+        #  - add(a: int, b: int) -> int
+        #  - get_server_time() -> str"
 
-    # --- Call 1 (Non-Streamed) ---
-    print("--- Running Non-Streaming Agent (Call 1) ---")
-    user_input_1 = "my name is Shayan. ok?"
-    prompt_1 = user_input_1
+        # TODO: When testing, modify user_input_1 or user_input_2 to specifically invoke these MCP tools.
+        # Example for user_input_1: "Use the echo tool to say 'Hello MCP World!' and then tell me what 10 + 5 is using the add tool."
 
-    if history_mode == "local_text" and thread_id:
-        local_history_content = load_local_text_thread_history(thread_id)
-        prompt_1 = f"{local_history_content}User: {user_input_1}\nAssistant:"
-        print(f"(Using local text history from thread '{thread_id}' for call 1)")
-    elif history_mode == "api" and thread_id:
-         print(f"(API history mode active for thread '{thread_id}', will apply to next call if applicable)")
+        # Specify the custom context type for the Agent and pass the MCP server
+        agent = Agent[AgentCustomContext](
+            name="Boiletplate_Agent", 
+            model="gpt-4.1", 
+            instructions=main_system_prompt, 
+            hooks=agent_hooks, 
+            tools=[],  # Keep existing direct tools if any, or this can be empty
+            mcp_servers=[mcp_http_server] # Add the MCP server client
+        )
+        
+        # Initialize custom context
+        custom_context = AgentCustomContext(
+            session_start_time=datetime.now(timezone.utc).isoformat()
+        )
+        if thread_id:
+            custom_context.current_thread_id = thread_id
 
-    result1 = await Runner.run(agent, prompt_1, context=custom_context) # Pass custom_context
-    print("Final Output (Call 1):", result1.final_output)
+        # --- Call 1 (Non-Streamed) ---
+        print("--- Running Non-Streaming Agent (Call 1) ---")
+        user_input_1 = "what tools do you have?" # TODO: Modify to test MCP tools
+        prompt_1 = user_input_1
 
-    if history_mode == "api" and thread_id and result1.last_response_id:
-        add_response_to_api_thread_history(thread_id, result1.last_response_id)
-    elif history_mode == "local_text" and thread_id and result1.final_output is not None:
-        append_to_local_text_thread_history(thread_id, user_input_1, result1.final_output)
+        if history_mode == "local_text" and thread_id:
+            local_history_content = load_local_text_thread_history(thread_id)
+            prompt_1 = f"{local_history_content}User: {user_input_1}\nAssistant:"
+            print(f"(Using local text history from thread '{thread_id}' for call 1)")
+        elif history_mode == "api" and thread_id:
+             print(f"(API history mode active for thread '{thread_id}', will apply to next call if applicable)")
 
-    # --- Call 2 (Non-Streamed) ---
-    print("\n--- Running Non-Streaming Agent (Call 2) ---")
-    user_input_2 = "What is my name?"
-    prompt_2 = user_input_2
-    kwargs_for_run2 = {}
+        result1 = await Runner.run(agent, prompt_1, context=custom_context) # Pass custom_context
+        print("Final Output (Call 1):", result1.final_output)
 
-    if history_mode == "api" and thread_id:
-        previous_api_id = get_latest_valid_response_id_from_api_thread(thread_id)
-        if previous_api_id:
-            kwargs_for_run2["previous_response_id"] = previous_api_id
-            print(f"(Using API history ID: {previous_api_id} from thread '{thread_id}' for next call)")
-        else:
-            print(f"(No valid API history ID found in thread '{thread_id}'. Starting fresh.)")
-    elif history_mode == "local_text" and thread_id:
-        local_history_content = load_local_text_thread_history(thread_id)
-        prompt_2 = f"{local_history_content}User: {user_input_2}\nAssistant:"
-        print(f"(Using local text history from thread '{thread_id}' for next call)")
-    elif history_mode == "none":
-        print("(Not using any conversation history for next call)")
+        if history_mode == "api" and thread_id and result1.last_response_id:
+            add_response_to_api_thread_history(thread_id, result1.last_response_id)
+        elif history_mode == "local_text" and thread_id and result1.final_output is not None:
+            append_to_local_text_thread_history(thread_id, user_input_1, result1.final_output)
 
-    result2 = await Runner.run(agent, prompt_2, context=custom_context, **kwargs_for_run2) # Pass custom_context
-    print("Final Output (Call 2):", result2.final_output)
+        # --- Call 2 (Non-Streamed) ---
+        print("\n--- Running Non-Streaming Agent (Call 2) ---")
+        user_input_2 = "echo 'hello' using tool" # TODO: Modify to test MCP tools
+        prompt_2 = user_input_2
+        kwargs_for_run2 = {}
 
-    if history_mode == "api" and thread_id and result2.last_response_id:
-        add_response_to_api_thread_history(thread_id, result2.last_response_id)
-    elif history_mode == "local_text" and thread_id and result2.final_output is not None:
-        append_to_local_text_thread_history(thread_id, user_input_2, result2.final_output)
+        if history_mode == "api" and thread_id:
+            previous_api_id = get_latest_valid_response_id_from_api_thread(thread_id)
+            if previous_api_id:
+                kwargs_for_run2["previous_response_id"] = previous_api_id
+                print(f"(Using API history ID: {previous_api_id} from thread '{thread_id}' for next call)")
+            else:
+                print(f"(No valid API history ID found in thread '{thread_id}'. Starting fresh.)")
+        elif history_mode == "local_text" and thread_id:
+            local_history_content = load_local_text_thread_history(thread_id)
+            prompt_2 = f"{local_history_content}User: {user_input_2}\nAssistant:"
+            print(f"(Using local text history from thread '{thread_id}' for next call)")
+        elif history_mode == "none":
+            print("(Not using any conversation history for next call)")
+
+        result2 = await Runner.run(agent, prompt_2, context=custom_context, **kwargs_for_run2) # Pass custom_context
+        print("Final Output (Call 2):", result2.final_output)
+
+        if history_mode == "api" and thread_id and result2.last_response_id:
+            add_response_to_api_thread_history(thread_id, result2.last_response_id)
+        elif history_mode == "local_text" and thread_id and result2.final_output is not None:
+            append_to_local_text_thread_history(thread_id, user_input_2, result2.final_output)
     
     print("--- Non-Streaming Agent Complete ---")
 
 async def main_stream(history_mode: str, thread_id: Optional[str] = None):
     agent_hooks_stream = CustomAgentHooks(display_name="Boiletplate_Agent_Streamed")
-    # Specify the custom context type for the Agent
-    agent = Agent[AgentCustomContext](name="Boiletplate_Agent_Streamed", model="gpt-4.1", instructions=main_system_prompt, hooks=agent_hooks_stream, tools=[])
 
-    # Initialize custom context for streaming
-    custom_context_stream = AgentCustomContext(
-        session_start_time=datetime.now(timezone.utc).isoformat()
-    )
-    if thread_id:
-        custom_context_stream.current_thread_id = thread_id
+    # --- Initialize MCP Streamable HTTP Server Connection ---
+    mcp_server_url = "http://127.0.0.1:8000/mcp"
+    mcp_params = MCPServerStreamableHttpParams(url=mcp_server_url)
 
-    # --- Call 1 (Streamed) ---
-    print("\r\n--- Running First Streamed Agent Call ---")
-    user_input_stream_1 = "my name is Shayan, ok?"
-    prompt_stream_1 = user_input_stream_1
-    
-    if history_mode == "local_text" and thread_id:
-        local_history_content_stream_1 = load_local_text_thread_history(thread_id)
-        prompt_stream_1 = f"{local_history_content_stream_1}User: {user_input_stream_1}\nAssistant:"
-        print(f"(Using local text history from thread '{thread_id}' for streamed call 1)")
-    elif history_mode == "api" and thread_id:
-         print(f"(API history mode active for thread '{thread_id}', will apply to next call if applicable)")
+    async with MCPServerStreamableHttp(
+        params=mcp_params,
+        name="MyLocalTestMCPServerClient_Stream", # Unique name for this client instance
+        cache_tools_list=True
+    ) as mcp_http_server:
 
-    result1_stream = Runner.run_streamed(agent, prompt_stream_1, context=custom_context_stream) # Pass custom_context # previous_response_id not applicable for first call
-    assistant_response_stream_1 = ""
-    async for event in result1_stream.stream_events():
-        if event.type == "raw_response_event" and hasattr(event, 'data') and event.data.type == "response.output_text.delta":
-            if hasattr(event.data, 'delta') and event.data.delta: 
-                print(event.data.delta, end="", flush=True)
-                assistant_response_stream_1 += event.data.delta
-        elif event.type == "run_item_stream_event" and hasattr(event, 'item') and event.item.type == "message_output_item":
-            print(f"\r\n[Stream Info: Message unit complete]", flush=True)
-    
-    response1_id = getattr(result1_stream, 'last_response_id', None)
-    if history_mode == "api" and thread_id and response1_id:
-        add_response_to_api_thread_history(thread_id, response1_id)
-    elif history_mode == "local_text" and thread_id:
-        append_to_local_text_thread_history(thread_id, user_input_stream_1, assistant_response_stream_1)
-    print("\r\n--- First Streamed Agent Call Complete ---\r\n")
+        # TODO: Update main_system_prompt in instructions.py for MCP tools (if not already done for main())
+        # TODO: Modify user_input_stream_1 or user_input_stream_2 to test MCP tools.
 
-    # --- Call 2 (Streamed) ---
-    print("--- Running Second Streamed Agent Call ---")
-    user_input_stream_2 = "what is my name?"
-    prompt_stream_2 = user_input_stream_2
-    kwargs_for_stream2 = {}
+        # Specify the custom context type for the Agent
+        agent = Agent[AgentCustomContext](
+            name="Boiletplate_Agent_Streamed", 
+            model="gpt-4.1",
+            instructions=main_system_prompt, 
+            hooks=agent_hooks_stream, 
+            tools=[],
+            mcp_servers=[mcp_http_server] # Add the MCP server client
+        )
 
-    if history_mode == "api" and thread_id:
-        previous_api_id = get_latest_valid_response_id_from_api_thread(thread_id)
-        if previous_api_id:
-            kwargs_for_stream2["previous_response_id"] = previous_api_id
-            print(f"(Using API history ID: {previous_api_id} from thread '{thread_id}' for next streamed call)")
-        else:
-            print(f"(No valid API history ID found in thread '{thread_id}'. Starting fresh.)")
-    elif history_mode == "local_text" and thread_id:
-        local_history_content_stream_2 = load_local_text_thread_history(thread_id)
-        prompt_stream_2 = f"{local_history_content_stream_2}User: {user_input_stream_2}\nAssistant:"
-        print(f"(Using local text history from thread '{thread_id}' for next streamed call)")
-    elif history_mode == "none":
-        print("(Not using any conversation history for next streamed call)")
+        # Initialize custom context for streaming
+        custom_context_stream = AgentCustomContext(
+            session_start_time=datetime.now(timezone.utc).isoformat()
+        )
+        if thread_id:
+            custom_context_stream.current_thread_id = thread_id
 
-    result2_stream = Runner.run_streamed(agent, prompt_stream_2, context=custom_context_stream, **kwargs_for_stream2) # Pass custom_context
-    assistant_response_stream_2 = ""
-    async for event in result2_stream.stream_events():
-        if event.type == "raw_response_event" and hasattr(event, 'data') and event.data.type == "response.output_text.delta":
-            if hasattr(event.data, 'delta') and event.data.delta: 
-                print(event.data.delta, end="", flush=True)
-                assistant_response_stream_2 += event.data.delta
-        elif event.type == "run_item_stream_event" and hasattr(event, 'item') and event.item.type == "message_output_item":
-            print(f"\r\n[Stream Info: Message unit complete]", flush=True)
+        # --- Call 1 (Streamed) ---
+        print("--- Running Streaming Agent (Call 1) ---")
+        user_input_stream_1 = "what tools do you have?" # TODO: Modify to test MCP tools
+        prompt_stream_1 = user_input_stream_1
+
+        if history_mode == "local_text" and thread_id:
+            local_history_content = load_local_text_thread_history(thread_id)
+            prompt_stream_1 = f"{local_history_content}User: {user_input_stream_1}\nAssistant:"
+            print(f"(Using local text history from thread '{thread_id}' for stream call 1)")
+        elif history_mode == "api" and thread_id:
+            print(f"(API history mode active for thread '{thread_id}', will apply to next stream call if applicable)")
+
+        result1_stream = Runner.run_streamed(agent, prompt_stream_1, context=custom_context_stream)
+        
+        print("Streaming Output (Call 1): ", end="")
+        final_output_stream_1 = ""
+        last_message_id_call_1 = None
+        async for event in result1_stream.stream_events():
+            if event.type == "raw_response_event" and hasattr(event, 'data') and hasattr(event.data, 'type') and event.data.type == "response.output_text.delta":
+                if hasattr(event.data, 'delta') and event.data.delta is not None:
+                    print(event.data.delta, end="", flush=True)
+                    final_output_stream_1 += event.data.delta
+            elif event.type == "run_item_stream_event" and hasattr(event, 'item') and hasattr(event.item, 'type') and event.item.type == "message_output_item":
+                # This event signifies the completion of a message unit.
+                # Attempt to get the message ID from event.item.id or event.item.message_id
+                current_message_id = getattr(event.item, 'id', getattr(event.item, 'message_id', None))
+                if current_message_id:
+                    last_message_id_call_1 = current_message_id
+                    print(f"\n(Stream Call 1: Message unit processed, ID: {current_message_id})", flush=True)
+        
+        print() # Newline after streaming output
+        # Handle API history after the stream is fully processed for this call
+        if history_mode == "api" and thread_id and last_message_id_call_1:
+            add_response_to_api_thread_history(thread_id, last_message_id_call_1)
+            print(f"(API history updated for thread '{thread_id}' with response ID: {last_message_id_call_1})")
+        elif history_mode == "api" and thread_id and not last_message_id_call_1:
+            # Fallback if ID wasn't captured from stream events, try result object if available
+            fallback_id = getattr(result1_stream, 'last_response_id', None)
+            if fallback_id:
+                add_response_to_api_thread_history(thread_id, fallback_id)
+                print(f"(API history updated for thread '{thread_id}' with fallback response ID: {fallback_id})")
+            else:
+                print(f"(Warning: Could not obtain message ID for API history for stream call 1 in thread '{thread_id}')")
+
+        if history_mode == "local_text" and thread_id and final_output_stream_1:
+            append_to_local_text_thread_history(thread_id, user_input_stream_1, final_output_stream_1)
+
+        # --- Call 2 (Streamed) ---
+        print("\n--- Running Streaming Agent (Call 2) ---")
+        user_input_stream_2 = "echo 'hello' using tool" # TODO: Modify to test MCP tools
+        prompt_stream_2 = user_input_stream_2
+        kwargs_for_stream2 = {}
+
+        if history_mode == "api" and thread_id:
+            previous_api_id = get_latest_valid_response_id_from_api_thread(thread_id)
+            if previous_api_id:
+                kwargs_for_stream2["previous_response_id"] = previous_api_id
+                print(f"(Using API history ID: {previous_api_id} from thread '{thread_id}' for next stream call)")
+            else:
+                print(f"(No valid API history ID found in thread '{thread_id}'. Starting fresh for stream.)")
+        elif history_mode == "local_text" and thread_id:
+            local_history_content = load_local_text_thread_history(thread_id)
+            prompt_stream_2 = f"{local_history_content}User: {user_input_stream_2}\nAssistant:"
+            print(f"(Using local text history from thread '{thread_id}' for next stream call)")
+        elif history_mode == "none":
+            print("(Not using any conversation history for next stream call)")
+
+        result2_stream = Runner.run_streamed(agent, prompt_stream_2, context=custom_context_stream, **kwargs_for_stream2)
+
+        print("Streaming Output (Call 2): ", end="")
+        final_output_stream_2 = ""
+        last_message_id_call_2 = None
+        async for event in result2_stream.stream_events():
+            if event.type == "raw_response_event" and hasattr(event, 'data') and hasattr(event.data, 'type') and event.data.type == "response.output_text.delta":
+                if hasattr(event.data, 'delta') and event.data.delta is not None:
+                    print(event.data.delta, end="", flush=True)
+                    final_output_stream_2 += event.data.delta
+            elif event.type == "run_item_stream_event" and hasattr(event, 'item') and hasattr(event.item, 'type') and event.item.type == "message_output_item":
+                current_message_id = getattr(event.item, 'id', getattr(event.item, 'message_id', None))
+                if current_message_id:
+                    last_message_id_call_2 = current_message_id
+                    print(f"\n(Stream Call 2: Message unit processed, ID: {current_message_id})", flush=True)
+
+        print() # Newline after streaming output
+        if history_mode == "api" and thread_id and last_message_id_call_2:
+            add_response_to_api_thread_history(thread_id, last_message_id_call_2)
+            print(f"(API history updated for thread '{thread_id}' with response ID: {last_message_id_call_2})")
+        elif history_mode == "api" and thread_id and not last_message_id_call_2:
+            fallback_id = getattr(result2_stream, 'last_response_id', None)
+            if fallback_id:
+                add_response_to_api_thread_history(thread_id, fallback_id)
+                print(f"(API history updated for thread '{thread_id}' with fallback response ID: {fallback_id})")
+            else:
+                print(f"(Warning: Could not obtain message ID for API history for stream call 2 in thread '{thread_id}')")
+
+        if history_mode == "local_text" and thread_id and final_output_stream_2:
+            append_to_local_text_thread_history(thread_id, user_input_stream_2, final_output_stream_2)
+
+    print("--- Streaming Agent Complete ---", flush=True)
 
     response2_id = getattr(result2_stream, 'last_response_id', None)
     if history_mode == "api" and thread_id and response2_id:
         add_response_to_api_thread_history(thread_id, response2_id)
     elif history_mode == "local_text" and thread_id:
-        append_to_local_text_thread_history(thread_id, user_input_stream_2, assistant_response_stream_2)
+        pass
     print("\r\n--- Second Streamed Agent Call Complete ---")
 
 if __name__ == "__main__":

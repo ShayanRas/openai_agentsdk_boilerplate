@@ -1,0 +1,9 @@
+User: what tools do you have?
+Assistant: I have access to the following tools:
+
+1. Echo: I can repeat any message you provide.
+2. Add: I can add two integers and give you the sum.
+3. Get Server Time: I can provide the current server date and time.
+
+Let me know how you’d like to use any of these!
+
