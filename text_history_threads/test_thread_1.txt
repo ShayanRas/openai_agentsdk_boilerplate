@@ -1,0 +1,9 @@
+User: my name is shayan
+Assistant: Hello, Shayan! How can I assist you today?
+
+User: what's my name?
+Assistant: Your name is Shayan!
+
+User: echo with your tool: test streaming echo
+Assistant: Echo: test streaming echo
+

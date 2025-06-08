@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from agents import Agent, Runner, AgentHooks, Tool # RunContextWrapper removed as it wasn't used
 from agents.mcp import MCPServerStreamableHttp, MCPServerStreamableHttpParams
 from instructions import main_system_prompt
+from database import db_manager, ensure_db_initialized
 
 dotenv.load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -22,9 +23,9 @@ if not OPENAI_API_KEY:
 # --- Pydantic Models for API --- 
 class InvokeRequest(BaseModel):
     user_input: str
+    user_id: Optional[str] = None 
     thread_id: Optional[str] = None
     history_mode: str # Expected values: "api", "local_text", "none"
-    user_name: Optional[str] = None # Optional user name for context
 
 class InvokeResponse(BaseModel):
     assistant_output: str
@@ -33,103 +34,33 @@ class InvokeResponse(BaseModel):
 
 # --- Custom Agent Context Definition (Copied from main.py) ---
 class AgentCustomContext(BaseModel):
-    user_name: Optional[str] = None
+    user_id: Optional[str] = None
     current_thread_id: Optional[str] = None
     session_start_time: Optional[str] = None
 
-# --- History Management Constants and Functions (Copied from main.py) ---
-API_HISTORY_DIR = "api_history_threads"
-TEXT_HISTORY_DIR = "text_history_threads"
+# --- History Management Constants ---
 EXPIRY_DAYS = 30
 
-def _get_api_thread_file_path(thread_id: str) -> str:
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    thread_dir = os.path.join(base_dir, API_HISTORY_DIR)
-    if not os.path.exists(thread_dir):
-        os.makedirs(thread_dir)
-    return os.path.join(thread_dir, f"{thread_id}.json")
-
-def load_api_thread_history(thread_id: str) -> List[Dict[str, str]]:
-    file_path = _get_api_thread_file_path(thread_id)
-    if not os.path.exists(file_path):
-        return []
-    try:
-        with open(file_path, "r") as f:
-            content = f.read()
-            if not content:
-                return []
-            return json.loads(content)
-    except (json.JSONDecodeError, IOError):
-        print(f"Warning: Could not load or parse API history file for thread {thread_id} at {file_path}")
-        return []
-
-def save_api_thread_history(thread_id: str, history: List[Dict[str, str]]) -> None:
-    file_path = _get_api_thread_file_path(thread_id)
-    try:
-        with open(file_path, "w") as f:
-            json.dump(history, f, indent=4)
-    except IOError:
-        print(f"Error: Could not write to API history file for thread {thread_id}: {file_path}")
-
-def add_response_to_api_thread_history(thread_id: str, response_id: Optional[str]) -> None:
+# Database-backed history management functions
+async def add_response_to_api_thread_history(thread_id: str, response_id: Optional[str]) -> None:
     if not response_id:
         return
-    history = load_api_thread_history(thread_id)
+    await ensure_db_initialized()
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(days=EXPIRY_DAYS)
-    new_entry = {
-        "id": response_id,
-        "created_at": now.isoformat(),
-        "expires_at": expires_at.isoformat()
-    }
-    history.append(new_entry)
-    save_api_thread_history(thread_id, history)
+    await db_manager.add_api_history_entry(thread_id, response_id, now, expires_at)
 
-def get_latest_valid_response_id_from_api_thread(thread_id: str) -> Optional[str]:
-    history = load_api_thread_history(thread_id)
-    valid_entries = []
-    now = datetime.now(timezone.utc)
-    for entry in history:
-        try:
-            expires_at_dt = datetime.fromisoformat(entry["expires_at"])
-            if expires_at_dt.tzinfo is None: expires_at_dt = expires_at_dt.replace(tzinfo=timezone.utc)
-            if expires_at_dt > now:
-                created_at_dt = datetime.fromisoformat(entry["created_at"])
-                if created_at_dt.tzinfo is None: created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
-                valid_entries.append({"id": entry["id"], "created_at_dt": created_at_dt})
-        except (KeyError, ValueError):
-            print(f"Warning: Skipping malformed API history entry in thread {thread_id}: {entry}")
-            continue
-    if not valid_entries:
-        return None
-    valid_entries.sort(key=lambda x: x["created_at_dt"], reverse=True)
-    return valid_entries[0]["id"]
+async def get_latest_valid_response_id_from_api_thread(thread_id: str) -> Optional[str]:
+    await ensure_db_initialized()
+    return await db_manager.get_latest_valid_api_response(thread_id)
 
-def _get_local_text_thread_file_path(thread_id: str) -> str:
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    thread_dir = os.path.join(base_dir, TEXT_HISTORY_DIR)
-    if not os.path.exists(thread_dir):
-        os.makedirs(thread_dir)
-    return os.path.join(thread_dir, f"{thread_id}.txt")
+async def load_local_text_thread_history(thread_id: str) -> str:
+    await ensure_db_initialized()
+    return await db_manager.get_text_history(thread_id)
 
-def load_local_text_thread_history(thread_id: str) -> str:
-    file_path = _get_local_text_thread_file_path(thread_id)
-    if not os.path.exists(file_path):
-        return ""
-    try:
-        with open(file_path, "r", encoding='utf-8') as f:
-            return f.read()
-    except IOError:
-        print(f"Warning: Could not load local text history file for thread {thread_id} at {file_path}")
-        return ""
-
-def append_to_local_text_thread_history(thread_id: str, user_input: str, assistant_response: str) -> None:
-    file_path = _get_local_text_thread_file_path(thread_id)
-    try:
-        with open(file_path, "a", encoding='utf-8') as f:
-            f.write(f"User: {user_input}\nAssistant: {assistant_response}\n\n")
-    except IOError:
-        print(f"Error: Could not write to local text history file for thread {thread_id}: {file_path}")
+async def append_to_local_text_thread_history(thread_id: str, user_input: str, assistant_response: str) -> None:
+    await ensure_db_initialized()
+    await db_manager.add_text_history_entry(thread_id, user_input, assistant_response)
 
 # --- Agent Hooks (Copied from main.py) ---
 class CustomAgentHooks(AgentHooks):
@@ -166,19 +97,33 @@ async def invoke_agent(request: InvokeRequest):
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured on server.")
 
+    await ensure_db_initialized()
+    
     agent_hooks = CustomAgentHooks(display_name="FastAPI_Agent_NonStream")
     mcp_params = MCPServerStreamableHttpParams(url=MCP_SERVER_URL)
     
     current_thread_id = request.thread_id
     new_thread_created = False
-    if not current_thread_id:
+    
+    # Determine thread type from existing thread or create new one
+    thread_type = None
+    if current_thread_id:
+        thread_info = await db_manager.get_thread(current_thread_id)
+        if thread_info:
+            thread_type = thread_info['thread_type']
+    
+    if not current_thread_id or not thread_info:
         if request.history_mode == "api":
             current_thread_id = f"api_thread_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+            thread_type = "api"
         elif request.history_mode == "local_text":
             current_thread_id = f"text_thread_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+            thread_type = "text"
         else: # none or other
-            current_thread_id = f"temp_thread_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}" # Still need an ID for context
+            current_thread_id = f"temp_thread_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+            thread_type = "temp"
         new_thread_created = True
+        await db_manager.create_thread(current_thread_id, thread_type, request.user_id)
         print(f"New thread ID created for API request: {current_thread_id}")
 
     async with MCPServerStreamableHttp(
@@ -197,7 +142,7 @@ async def invoke_agent(request: InvokeRequest):
         )
 
         custom_context = AgentCustomContext(
-            user_name=request.user_name,
+            user_id=request.user_id,
             current_thread_id=current_thread_id,
             session_start_time=datetime.now(timezone.utc).isoformat()
         )
@@ -206,14 +151,14 @@ async def invoke_agent(request: InvokeRequest):
         kwargs_for_run = {}
 
         if request.history_mode == "local_text" and current_thread_id:
-            local_history_content = load_local_text_thread_history(current_thread_id)
+            local_history_content = await load_local_text_thread_history(current_thread_id)
             if local_history_content:
                 prompt = f"{local_history_content.strip()}\n\nUser: {request.user_input}\nAssistant:"
             else:
                 prompt = f"User: {request.user_input}\nAssistant:"
             print(f"(API using local text history from thread '{current_thread_id}')")
         elif request.history_mode == "api" and current_thread_id:
-            latest_response_id = get_latest_valid_response_id_from_api_thread(current_thread_id)
+            latest_response_id = await get_latest_valid_response_id_from_api_thread(current_thread_id)
             if latest_response_id:
                 kwargs_for_run['previous_response_id'] = latest_response_id
                 print(f"(API using API history from thread '{current_thread_id}', prev_resp_id: {latest_response_id})")
@@ -229,9 +174,9 @@ async def invoke_agent(request: InvokeRequest):
         assistant_output = result.final_output if result else "Error: No output from agent."
 
         if request.history_mode == "local_text" and current_thread_id:
-            append_to_local_text_thread_history(current_thread_id, request.user_input, assistant_output)
+            await append_to_local_text_thread_history(current_thread_id, request.user_input, assistant_output)
         elif request.history_mode == "api" and current_thread_id and result and result.last_response_id:
-            add_response_to_api_thread_history(current_thread_id, result.last_response_id)
+            await add_response_to_api_thread_history(current_thread_id, result.last_response_id)
         
         return InvokeResponse(
             assistant_output=assistant_output,
@@ -239,15 +184,181 @@ async def invoke_agent(request: InvokeRequest):
             new_thread_created=new_thread_created
         )
 
-# Placeholder for streaming endpoint - to be implemented next
-# @app.post("/invoke_stream")
-# async def invoke_agent_stream(request: InvokeRequest):
-#     # ... implementation for streaming ...
-#     pass
+@app.post("/invoke_stream")
+async def invoke_agent_stream(request: InvokeRequest):
+    """
+    Streaming endpoint that returns Server-Sent Events (SSE) for real-time agent responses.
+    """
+    if not OPENAI_API_KEY:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured on server.")
+    
+    async def generate_stream() -> AsyncGenerator[str, None]:
+        await ensure_db_initialized()
+        
+        agent_hooks = CustomAgentHooks(display_name="FastAPI_Agent_Stream")
+        mcp_params = MCPServerStreamableHttpParams(url=MCP_SERVER_URL)
+        
+        current_thread_id = request.thread_id
+        new_thread_created = False
+        
+        # Determine thread type from existing thread or create new one
+        thread_type = None
+        if current_thread_id:
+            thread_info = await db_manager.get_thread(current_thread_id)
+            if thread_info:
+                thread_type = thread_info['thread_type']
+        
+        if not current_thread_id or not thread_info:
+            if request.history_mode == "api":
+                current_thread_id = f"api_thread_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+                thread_type = "api"
+            elif request.history_mode == "local_text":
+                current_thread_id = f"text_thread_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+                thread_type = "text"
+            else:  # none or other
+                current_thread_id = f"temp_thread_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+                thread_type = "temp"
+            new_thread_created = True
+            await db_manager.create_thread(current_thread_id, thread_type, request.user_id)
+            print(f"New thread ID created for streaming API request: {current_thread_id}")
+        
+        # Send initial metadata
+        yield f"data: {json.dumps({'type': 'metadata', 'thread_id': current_thread_id, 'new_thread_created': new_thread_created})}\n\n"
+        
+        try:
+            async with MCPServerStreamableHttp(
+                params=mcp_params,
+                name=f"MCPServerClient_Stream_{current_thread_id}",
+                cache_tools_list=True
+            ) as mcp_http_server:
+                
+                agent = Agent[AgentCustomContext](
+                    name="FastAPIAgent_Stream",
+                    model="gpt-4.1",
+                    instructions=main_system_prompt,
+                    hooks=agent_hooks,
+                    tools=[],
+                    mcp_servers=[mcp_http_server]
+                )
+                
+                custom_context = AgentCustomContext(
+                    user_id=request.user_id,
+                    current_thread_id=current_thread_id,
+                    session_start_time=datetime.now(timezone.utc).isoformat()
+                )
+                
+                # Prepare prompt and kwargs
+                prompt = request.user_input
+                kwargs_for_run = {}
+                
+                if request.history_mode == "local_text" and current_thread_id:
+                    local_history_content = await load_local_text_thread_history(current_thread_id)
+                    prompt = f"{local_history_content}User: {request.user_input}\nAssistant:"
+                    print(f"(Using local text history from thread '{current_thread_id}' for streaming)")
+                elif request.history_mode == "api" and current_thread_id:
+                    previous_api_id = await get_latest_valid_response_id_from_api_thread(current_thread_id)
+                    if previous_api_id:
+                        kwargs_for_run["previous_response_id"] = previous_api_id
+                        print(f"(Using API history ID: {previous_api_id} from thread '{current_thread_id}' for streaming)")
+                    else:
+                        print(f"(API history mode for thread '{current_thread_id}', but no valid previous response ID found)")
+                
+                # Run the agent in streaming mode
+                result_stream = Runner.run_streamed(agent, prompt, context=custom_context, **kwargs_for_run)
+                
+                # Process stream events
+                final_output = ""
+                last_message_id = None
+                
+                async for event in result_stream.stream_events():
+                    if event.type == "raw_response_event" and hasattr(event, 'data'):
+                        if hasattr(event.data, 'type') and event.data.type == "response.output_text.delta":
+                            if hasattr(event.data, 'delta') and event.data.delta is not None:
+                                final_output += event.data.delta
+                                # Send text delta
+                                yield f"data: {json.dumps({'type': 'delta', 'content': event.data.delta})}\n\n"
+                    
+                    elif event.type == "run_item_stream_event" and hasattr(event, 'item'):
+                        if hasattr(event.item, 'type') and event.item.type == "message_output_item":
+                            current_message_id = getattr(event.item, 'id', getattr(event.item, 'message_id', None))
+                            if current_message_id:
+                                last_message_id = current_message_id
+                                # Send message ID update
+                                yield f"data: {json.dumps({'type': 'message_id', 'message_id': current_message_id})}\n\n"
+                                print(f"(Stream: Message unit processed, ID: {current_message_id})")
+                
+                # Handle history updates after stream completion
+                if request.history_mode == "local_text" and current_thread_id and final_output:
+                    await append_to_local_text_thread_history(current_thread_id, request.user_input, final_output)
+                    print(f"(Local text history updated for thread '{current_thread_id}')")
+                elif request.history_mode == "api" and current_thread_id:
+                    if last_message_id:
+                        await add_response_to_api_thread_history(current_thread_id, last_message_id)
+                        print(f"(API history updated for thread '{current_thread_id}' with response ID: {last_message_id})")
+                    else:
+                        # Fallback: try to get response ID from result object
+                        fallback_id = getattr(result_stream, 'last_response_id', None)
+                        if fallback_id:
+                            await add_response_to_api_thread_history(current_thread_id, fallback_id)
+                            print(f"(API history updated with fallback response ID: {fallback_id})")
+                
+                # Send completion event
+                yield f"data: {json.dumps({'type': 'done', 'thread_id': current_thread_id, 'final_output': final_output})}\n\n"
+                
+        except Exception as e:
+            print(f"Error during streaming: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable Nginx buffering
+            "Access-Control-Allow-Origin": "*"  # CORS support (adjust as needed)
+        }
+    )
+
+# Thread management endpoints
+@app.get("/users/{user_id}/threads")
+async def list_user_threads(user_id: str):
+    """Get all threads for a user"""
+    await ensure_db_initialized()
+    threads = await db_manager.get_user_threads(user_id)
+    return {"threads": threads}
+
+@app.get("/threads/{thread_id}/history")
+async def get_thread_history(thread_id: str, user_id: str):
+    """Get conversation history for a thread"""
+    await ensure_db_initialized()
+    
+    thread = await db_manager.get_thread(thread_id)
+    if not thread or thread.get('user_id') != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    if thread['thread_type'] == 'text':
+        history = await db_manager.get_text_history(thread_id)
+        return {"thread_id": thread_id, "history_type": "text", "history": history}
+    else:
+        history = await db_manager.get_api_history(thread_id)
+        return {"thread_id": thread_id, "history_type": "api", "history": history}
+
+# Lifecycle management for database connections
+@app.on_event("startup")
+async def startup_event():
+    await db_manager.initialize()
+    print("Database connection pool initialized")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await db_manager.close()
+    print("Database connection pool closed")
 
 if __name__ == "__main__":
     # This part is for direct execution testing, not for uvicorn deployment
     # For uvicorn, run: uvicorn api_main:app --reload
     print("To run this FastAPI application, use: uvicorn api_main:app --reload")
     print("Ensure OPENAI_API_KEY is set in your .env file or environment.")
+    print("Ensure DB_URL is set in your .env file or environment.")
     print(f"MCP Server URL is configured as: {MCP_SERVER_URL}")
