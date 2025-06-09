@@ -14,20 +14,22 @@ COPY requirements.chainlit.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.chainlit.txt
 
-# Copy the Chainlit application file
+# Copy the Chainlit application files
 COPY chainlit_app.py .
+COPY schema.prisma .
+COPY init_db.py .
 
 # Create .chainlit directory for config
 RUN mkdir -p .chainlit
 
-# Copy config file if you have one (optional)
-# COPY .chainlit/config.toml .chainlit/
+# Copy config file
+COPY .chainlit/config.toml .chainlit/
 
 # Expose port for Chainlit (default is 8000, but we'll use 8002)
 EXPOSE 8002
 
-# Command to run Chainlit
+# Initialize database and run Chainlit
 # -h flag prevents browser from opening server-side
 # --host 0.0.0.0 makes it accessible from outside container
 # --port 8002 to avoid conflicts with MCP server
-CMD ["chainlit", "run", "chainlit_app.py", "-h", "--host", "0.0.0.0", "--port", "8002"]
+CMD python init_db.py && chainlit run chainlit_app.py -h --host 0.0.0.0 --port 8002

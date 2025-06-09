@@ -1,5 +1,21 @@
 
 services:
+  postgres:
+    image: postgres:15
+    container_name: marketguru_postgres
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app_network
+
   agent_app:
     build:
       context: .
@@ -10,8 +26,8 @@ services:
     env_file:
       - .env
     environment:
-      - DB_URL=${DB_URL:-postgresql://postgres.wcummuhdtjjvuukmzjyx:HoomanKhare2008!@aws-0-us-east-1.pooler.supabase.com:6543/postgres}
-      - VECTOR_STORE_ID=${VECTOR_STORE_ID:-default_store}
+      - DB_URL=${DB_URL}
+      - VECTOR_STORE_ID=${VECTOR_STORE_ID}
     volumes:
       - ./api_history_threads:/app/api_history_threads
       - ./text_history_threads:/app/text_history_threads
@@ -20,6 +36,7 @@ services:
       - ./database.py:/app/database.py # For live reload
       - ./openai_tools.py:/app/openai_tools.py # For live reload
     depends_on:
+      - postgres
       - mcp_server
     networks:
       - app_network
@@ -47,13 +64,14 @@ services:
       - .env
     environment:
       - API_BASE_URL=http://agent_app:8001
-      - DEFAULT_HISTORY_MODE=${DEFAULT_HISTORY_MODE:-api}
-      - CHAINLIT_AUTH_SECRET=your_super_secret_jwt_key_here_change_in_production_12345
-      - LITERAL_API_KEY=${LITERAL_API_KEY:-}
+      - DEFAULT_HISTORY_MODE=${DEFAULT_HISTORY_MODE}
+      - CHAINLIT_AUTH_SECRET=${CHAINLIT_AUTH_SECRET}
+      - DATABASE_URL=${DATABASE_URL}
     volumes:
       - ./chainlit_app.py:/app/chainlit_app.py  # For live reload
       - ./.chainlit:/app/.chainlit  # For config
     depends_on:
+      - postgres
       - agent_app
     networks:
       - app_network
@@ -61,3 +79,6 @@ services:
 networks:
   app_network:
     driver: bridge
+
+volumes:
+  postgres_data:

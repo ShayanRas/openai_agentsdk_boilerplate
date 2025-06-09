@@ -11,173 +11,60 @@ load_dotenv()
 
 # Configuration
 API_BASE_URL = os.getenv("API_BASE_URL", "http://agent_app:8001")
-DEFAULT_HISTORY_MODE = os.getenv("DEFAULT_HISTORY_MODE", "api")
+DEFAULT_HISTORY_MODE = os.getenv("DEFAULT_HISTORY_MODE", "local_text")
+
+# Authentication callback for thread persistence
+@cl.password_auth_callback
+def auth_callback(username: str, password: str):
+    """Authentication - accept any username/password for demo purposes"""
+    if username and password:
+        return cl.User(
+            identifier=username,
+            metadata={"username": username, "role": "user"}
+        )
+    return None
 
 @cl.on_chat_start
 async def on_chat_start():
-    """Initialize chat session with thread management"""
-    # For simplicity, use a demo user ID - in production, get from authentication
-    user_id = "demo_user"
+    """Initialize chat session"""
+    # Get authenticated user
+    user = cl.user_session.get("user")
+    user_id = user.identifier if user else "demo_user"
     
     # Initialize session variables
     cl.user_session.set("user_id", user_id)
-    cl.user_session.set("thread_id", None)
+    cl.user_session.set("backend_thread_id", None)
     cl.user_session.set("history_mode", DEFAULT_HISTORY_MODE)
     cl.user_session.set("enable_tools", True)
     cl.user_session.set("streaming", True)
     
-    # Send welcome message with thread management options
-    welcome_actions = [
-        cl.Action(name="load_threads", value="load", description="📋 View My Conversations"),
-        cl.Action(name="new_thread", value="new", description="🆕 Start New Conversation"),
-    ]
-    
+    # Send welcome message
     await cl.Message(
-        content=f"👋 Welcome to MarketGuru 2.0!\n\nI'm your AI assistant with access to various tools:\n- 🔍 Web searches\n- 💻 Code interpretation\n- 🧮 Mathematical calculations\n- 💬 General conversations\n\nChoose an option below or start chatting:",
-        actions=welcome_actions
+        content="👋 Welcome to MarketGuru 2.0! I'm your AI assistant with access to various tools:\n\n- 🔍 Web searches\n- 💻 Code interpretation and analysis\n- 🧮 Mathematical calculations\n- 💬 General conversations\n\nStart chatting! Your conversations will appear in the sidebar."
     ).send()
-    
-    # Load and display user's recent threads
-    await load_user_threads()
     
     # Show settings
-    settings = await cl.ChatSettings(
-        [
-            Select(
-                id="history_mode",
-                label="History Mode",
-                values=["api", "local_text", "none"],
-                initial_index=0,
-                description="How to handle conversation history"
-            ),
-            Switch(
-                id="enable_tools",
-                label="Enable Tools",
-                initial=True,
-                description="Enable AI tools (web search, code interpreter, etc.)"
-            ),
-            Switch(
-                id="streaming",
-                label="Streaming Responses",
-                initial=True,
-                description="Stream responses in real-time"
-            )
-        ]
-    ).send()
-
-async def load_user_threads():
-    """Load and display user's conversation threads"""
-    user_id = cl.user_session.get("user_id")
-    
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(f"{API_BASE_URL}/users/{user_id}/threads")
-            response.raise_for_status()
-            
-            data = response.json()
-            threads = data.get("threads", [])
-            
-            if threads:
-                thread_list = "📋 **Your Recent Conversations:**\n\n"
-                for i, thread in enumerate(threads[:5]):  # Show last 5 threads
-                    thread_type = thread["thread_type"].upper()
-                    created_at = thread["created_at"][:10]  # Just the date
-                    thread_list += f"**{i+1}.** `{thread['id']}` ({thread_type}) - {created_at}\n"
-                
-                thread_actions = [
-                    cl.Action(name="select_thread", value=thread["id"], description=f"💬 Resume: {thread['id'][:20]}...")
-                    for thread in threads[:3]  # Buttons for first 3 threads
-                ]
-                
-                await cl.Message(
-                    content=thread_list,
-                    actions=thread_actions
-                ).send()
-            else:
-                await cl.Message(
-                    content="📝 No previous conversations found. Start chatting to create your first thread!"
-                ).send()
-                
-    except Exception as e:
-        print(f"Error loading threads: {e}")
-        await cl.Message(
-            content="⚠️ Could not load previous conversations. Starting fresh conversation."
-        ).send()
-
-@cl.action_callback("load_threads")
-async def on_load_threads(action):
-    """Handle load threads action"""
-    await load_user_threads()
-    await action.remove()
-
-@cl.action_callback("new_thread")
-async def on_new_thread(action):
-    """Handle new thread action"""
-    cl.user_session.set("thread_id", None)
-    await cl.Message(
-        content="🆕 Starting a new conversation thread. Your next message will create a new thread."
-    ).send()
-    await action.remove()
-
-@cl.action_callback("select_thread")
-async def on_select_thread(action):
-    """Handle thread selection"""
-    thread_id = action.value
-    cl.user_session.set("thread_id", thread_id)
-    
-    # Load thread history if it's a text thread
-    await load_thread_history(thread_id)
-    
-    await cl.Message(
-        content=f"📂 Switched to conversation: `{thread_id}`\n\nYou can now continue this conversation."
-    ).send()
-    await action.remove()
-
-async def load_thread_history(thread_id: str):
-    """Load and display thread history"""
-    user_id = cl.user_session.get("user_id")
-    
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                f"{API_BASE_URL}/threads/{thread_id}/history",
-                params={"user_id": user_id}
-            )
-            response.raise_for_status()
-            
-            data = response.json()
-            history_type = data.get("history_type")
-            
-            if history_type == "text" and data.get("history"):
-                # Parse and display text history
-                history = data["history"]
-                lines = history.strip().split('\n')
-                
-                current_messages = []
-                for line in lines:
-                    if line.startswith("User: "):
-                        current_messages.append(("user", line[6:]))
-                    elif line.startswith("Assistant: "):
-                        current_messages.append(("assistant", line[11:]))
-                
-                # Display last few messages as context
-                if current_messages:
-                    context = "📚 **Previous conversation context:**\n\n"
-                    for role, content in current_messages[-4:]:  # Show last 4 messages
-                        if role == "user":
-                            context += f"**You:** {content}\n\n"
-                        else:
-                            context += f"**Assistant:** {content}\n\n"
-                    
-                    await cl.Message(content=context).send()
-            
-            elif history_type == "api":
-                await cl.Message(
-                    content="📚 **API History Mode:** Conversation context will be automatically maintained by OpenAI."
-                ).send()
-                
-    except Exception as e:
-        print(f"Error loading thread history: {e}")
+    settings = await cl.ChatSettings([
+        Select(
+            id="history_mode",
+            label="History Mode",
+            values=["api", "local_text", "none"],
+            initial_index=0,
+            description="How to handle conversation history"
+        ),
+        Switch(
+            id="enable_tools",
+            label="Enable Tools",
+            initial=True,
+            description="Enable AI tools (web search, code interpreter, etc.)"
+        ),
+        Switch(
+            id="streaming",
+            label="Streaming Responses",
+            initial=True,
+            description="Stream responses in real-time"
+        )
+    ]).send()
 
 @cl.on_settings_update
 async def setup_agent(settings):
@@ -192,10 +79,10 @@ async def setup_agent(settings):
 
 @cl.on_message
 async def on_message(message: cl.Message):
-    """Handle user messages with thread management"""
+    """Handle user messages"""
     # Get current settings and user info
     user_id = cl.user_session.get("user_id")
-    thread_id = cl.user_session.get("thread_id")
+    backend_thread_id = cl.user_session.get("backend_thread_id")
     history_mode = cl.user_session.get("history_mode", DEFAULT_HISTORY_MODE)
     enable_tools = cl.user_session.get("enable_tools", True)
     streaming = cl.user_session.get("streaming", True)
@@ -208,8 +95,9 @@ async def on_message(message: cl.Message):
         "enable_tools": enable_tools
     }
     
-    if thread_id:
-        request_data["thread_id"] = thread_id
+    # Use existing backend thread if available
+    if backend_thread_id:
+        request_data["thread_id"] = backend_thread_id
     
     # Use streaming or non-streaming endpoint
     endpoint = "/invoke_stream" if streaming else "/invoke"
@@ -217,7 +105,7 @@ async def on_message(message: cl.Message):
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             if streaming:
-                await handle_streaming_response(client, endpoint, request_data)
+                await handle_streaming_response(client, endpoint, request_data, message)
             else:
                 await handle_non_streaming_response(client, endpoint, request_data)
                 
@@ -230,12 +118,13 @@ async def on_message(message: cl.Message):
             content=f"❌ An error occurred: {str(e)}"
         ).send()
 
-async def handle_streaming_response(client: httpx.AsyncClient, endpoint: str, request_data: Dict[str, Any]):
+async def handle_streaming_response(client: httpx.AsyncClient, endpoint: str, request_data: Dict[str, Any], user_message: cl.Message):
     """Handle streaming responses from the API"""
     msg = cl.Message(content="")
     await msg.send()
     
     full_response = ""
+    backend_thread_id = None
     
     try:
         async with client.stream(
@@ -252,20 +141,14 @@ async def handle_streaming_response(client: httpx.AsyncClient, endpoint: str, re
                         data = json.loads(line[6:])
                         
                         if data["type"] == "metadata":
-                            # Update thread ID if new thread created
-                            thread_id = data["thread_id"]
-                            cl.user_session.set("thread_id", thread_id)
+                            # Store backend thread ID for future requests
+                            backend_thread_id = data["thread_id"]
+                            cl.user_session.set("backend_thread_id", backend_thread_id)
                             
                             if data.get("new_thread_created"):
-                                thread_actions = [
-                                    cl.Action(name="load_threads", value="load", description="📋 View All Threads"),
-                                    cl.Action(name="new_thread", value="new", description="🆕 Start Another Thread"),
-                                ]
-                                
-                                await cl.Message(
-                                    content=f"🆕 **New conversation started:** `{thread_id}`\n\nThis conversation will be saved and you can return to it later.",
-                                    actions=thread_actions
-                                ).send()
+                                # This message will be associated with the new Chainlit thread
+                                # The thread will automatically appear in the sidebar
+                                pass
                         
                         elif data["type"] == "delta":
                             content = data.get("content", "")
@@ -285,6 +168,7 @@ async def handle_streaming_response(client: httpx.AsyncClient, endpoint: str, re
                             
                     except json.JSONDecodeError:
                         continue
+                        
     except Exception as e:
         await cl.Message(
             content=f"❌ Streaming error: {str(e)}"
@@ -304,9 +188,9 @@ async def handle_non_streaming_response(client: httpx.AsyncClient, endpoint: str
         
         result = response.json()
         
-        # Update thread ID
-        thread_id = result["thread_id"]
-        cl.user_session.set("thread_id", thread_id)
+        # Store backend thread ID
+        backend_thread_id = result["thread_id"]
+        cl.user_session.set("backend_thread_id", backend_thread_id)
         
         await thinking_msg.remove()
         
@@ -314,17 +198,6 @@ async def handle_non_streaming_response(client: httpx.AsyncClient, endpoint: str
         await cl.Message(
             content=result["assistant_output"]
         ).send()
-        
-        if result.get("new_thread_created"):
-            thread_actions = [
-                cl.Action(name="load_threads", value="load", description="📋 View All Threads"),
-                cl.Action(name="new_thread", value="new", description="🆕 Start Another Thread"),
-            ]
-            
-            await cl.Message(
-                content=f"🆕 **New conversation started:** `{thread_id}`",
-                actions=thread_actions
-            ).send()
             
     except Exception as e:
         await thinking_msg.remove()
@@ -342,27 +215,28 @@ async def on_stop():
 @cl.on_chat_end
 async def on_chat_end():
     """Clean up when chat ends"""
-    thread_id = cl.user_session.get("thread_id")
+    backend_thread_id = cl.user_session.get("backend_thread_id")
     user_id = cl.user_session.get("user_id")
-    if thread_id:
-        print(f"Chat ended. User: {user_id}, Thread: {thread_id}")
+    if backend_thread_id:
+        print(f"Chat ended. User: {user_id}, Backend Thread: {backend_thread_id}")
 
 @cl.on_chat_resume
-async def on_chat_resume(thread: cl.ThreadDict):
+async def on_chat_resume(thread: Dict):
     """Resume a previous conversation thread"""
-    user_id = cl.user_session.get("user_id") 
+    user_id = cl.user_session.get("user_id", "demo_user")
+    cl.user_session.set("user_id", user_id)
     
-    # Extract thread_id from Chainlit's thread metadata
-    thread_id = thread.get("metadata", {}).get("thread_id")
+    # Clear backend thread ID so it starts fresh or gets linked
+    cl.user_session.set("backend_thread_id", None)
     
-    if thread_id:
-        cl.user_session.set("thread_id", thread_id)
-        await load_thread_history(thread_id)
-        
-        await cl.Message(
-            content=f"📂 **Resumed conversation:** `{thread_id}`\n\nYou can continue where you left off."
-        ).send()
-    else:
-        await cl.Message(
-            content="📂 Welcome back! Starting a fresh conversation."
-        ).send()
+    # Get thread metadata
+    thread_id = thread.get("id")
+    thread_name = thread.get("name", "Conversation")
+    
+    # Welcome back message
+    await cl.Message(
+        content=f"📂 Resumed conversation: **{thread_name}**\n\nAll your previous messages are shown above. Continue the conversation!"
+    ).send()
+
+if __name__ == "__main__":
+    pass

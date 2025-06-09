@@ -8,7 +8,8 @@
       "WebFetch(domain:docs.chainlit.io)",
       "WebFetch(domain:docs.chainlit.io)",
       "WebFetch(domain:docs.chainlit.io)",
-      "Bash(chainlit:*)"
+      "Bash(chainlit:*)",
+      "Bash(rm:*)"
     ],
     "deny": []
   }
