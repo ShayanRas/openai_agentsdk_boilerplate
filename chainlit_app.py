@@ -6,12 +6,74 @@ from chainlit.input_widget import Select, Switch
 from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 import asyncio
+from mcp import ClientSession
+import openai
 
 load_dotenv()
+
+# Initialize OpenAI client for direct mode
+openai_client = openai.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Configuration
 API_BASE_URL = os.getenv("API_BASE_URL", "http://agent_app:8001")
 DEFAULT_HISTORY_MODE = os.getenv("DEFAULT_HISTORY_MODE", "local_text")
+
+# OpenAI Agent tools for direct mode (same as in openai_tools.py)
+OPENAI_AGENT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Search the web for current information and news",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function", 
+        "function": {
+            "name": "code_interpreter",
+            "description": "Execute Python code for calculations, data analysis, and problem solving",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Python code to execute"
+                    }
+                },
+                "required": ["code"]
+            }
+        }
+    }
+]
+
+# System prompt for direct mode (from instructions.py)
+AGENT_INSTRUCTIONS = """
+You are MarketGuru 2.0, an advanced AI assistant with access to multiple tools and capabilities.
+
+Core Capabilities:
+- Web search for current information and market data
+- Code interpretation for calculations and analysis  
+- MCP server tools for specialized functions
+- Mathematical calculations and data processing
+
+Guidelines:
+- Always use tools when they can provide better, more current, or more accurate information
+- For market data, news, or current events, use web search
+- For calculations, data analysis, or code execution, use code interpreter
+- For specialized functions, use available MCP tools
+- Be thorough and analytical in your responses
+- Provide sources when using web search results
+"""
 
 # Authentication callback for thread persistence
 @cl.password_auth_callback
@@ -37,6 +99,9 @@ async def on_chat_start():
     cl.user_session.set("history_mode", DEFAULT_HISTORY_MODE)
     cl.user_session.set("enable_tools", True)
     cl.user_session.set("streaming", True)
+    cl.user_session.set("agent_mode", "backend")  # New: backend vs direct
+    cl.user_session.set("mcp_tools", {})  # Store MCP tools from connections
+    cl.user_session.set("chat_messages", [])
     
     # Send welcome message
     await cl.Message(
@@ -45,6 +110,13 @@ async def on_chat_start():
     
     # Show settings
     settings = await cl.ChatSettings([
+        Select(
+            id="agent_mode",
+            label="Agent Mode",
+            values=["backend", "direct"],
+            initial_index=0,
+            description="backend: FastAPI + Agents SDK (full features) | direct: Chainlit native + MCP integration"
+        ),
         Select(
             id="history_mode",
             label="History Mode",
@@ -69,9 +141,15 @@ async def on_chat_start():
 @cl.on_settings_update
 async def setup_agent(settings):
     """Update settings when changed"""
+    cl.user_session.set("agent_mode", settings["agent_mode"])
     cl.user_session.set("history_mode", settings["history_mode"])
     cl.user_session.set("enable_tools", settings["enable_tools"])
     cl.user_session.set("streaming", settings["streaming"])
+    
+    mode_desc = {
+        "backend": "FastAPI + OpenAI Agents SDK (full backend features)",
+        "direct": "Chainlit native with MCP integration"
+    }
     
     memory_desc = {
         "local_text": "Full conversation memory (saves everything to database)",
@@ -80,12 +158,88 @@ async def setup_agent(settings):
     }
     
     await cl.Message(
-        content=f"✅ Settings updated:\n- History Mode: **{settings['history_mode']}** - {memory_desc.get(settings['history_mode'], settings['history_mode'])}\n- Tools: {'Enabled' if settings['enable_tools'] else 'Disabled'}\n- Streaming: {'Enabled' if settings['streaming'] else 'Disabled'}"
+        content=f"✅ Settings updated:\n- Agent Mode: **{settings['agent_mode']}** - {mode_desc.get(settings['agent_mode'], settings['agent_mode'])}\n- History Mode: **{settings['history_mode']}** - {memory_desc.get(settings['history_mode'], settings['history_mode'])}\n- Tools: {'Enabled' if settings['enable_tools'] else 'Disabled'}\n- Streaming: {'Enabled' if settings['streaming'] else 'Disabled'}"
     ).send()
+
+# MCP Integration for Direct Mode
+@cl.on_mcp_connect
+async def on_mcp_connect(connection, session: ClientSession):
+    """Called when an MCP connection is established"""
+    result = await session.list_tools()
+    tools = [{
+        "name": t.name,
+        "description": t.description,
+        "input_schema": t.inputSchema,
+    } for t in result.tools]
+    
+    # Store tools in session
+    mcp_tools = cl.user_session.get("mcp_tools", {})
+    mcp_tools[connection.name] = tools
+    cl.user_session.set("mcp_tools", mcp_tools)
+    
+    await cl.Message(
+        content=f"🔌 **MCP Connected**: {connection.name}\n📋 **Available Tools**: {', '.join([t['name'] for t in tools])}"
+    ).send()
+
+@cl.on_mcp_disconnect  
+async def on_mcp_disconnect(name: str, session: ClientSession):
+    """Called when an MCP connection is terminated"""
+    mcp_tools = cl.user_session.get("mcp_tools", {})
+    if name in mcp_tools:
+        del mcp_tools[name]
+        cl.user_session.set("mcp_tools", mcp_tools)
+    
+    await cl.Message(
+        content=f"🔌 **MCP Disconnected**: {name}"
+    ).send()
+
+@cl.step(type="tool")
+async def call_mcp_tool(tool_use):
+    """Execute MCP tools in direct mode"""
+    tool_name = tool_use.name
+    tool_input = tool_use.input
+    
+    current_step = cl.context.current_step
+    current_step.name = tool_name
+    
+    # Find which MCP connection has this tool
+    mcp_tools = cl.user_session.get("mcp_tools", {})
+    mcp_name = None
+    
+    for connection_name, tools in mcp_tools.items():
+        if any(tool.get("name") == tool_name for tool in tools):
+            mcp_name = connection_name
+            break
+    
+    if not mcp_name:
+        current_step.output = json.dumps({"error": f"Tool {tool_name} not found in any MCP connection"})
+        return current_step.output
+    
+    mcp_session, _ = cl.context.session.mcp_sessions.get(mcp_name)
+    
+    if not mcp_session:
+        current_step.output = json.dumps({"error": f"MCP {mcp_name} session not found"})
+        return current_step.output
+    
+    try:
+        current_step.output = await mcp_session.call_tool(tool_name, tool_input)
+    except Exception as e:
+        current_step.output = json.dumps({"error": str(e)})
+    
+    return current_step.output
 
 @cl.on_message
 async def on_message(message: cl.Message):
-    """Handle user messages"""
+    """Handle user messages - route between backend and direct modes"""
+    agent_mode = cl.user_session.get("agent_mode", "backend")
+    
+    if agent_mode == "backend":
+        await handle_backend_mode(message)
+    else:  # direct mode
+        await handle_direct_mode(message)
+
+async def handle_backend_mode(message: cl.Message):
+    """Handle messages using the existing FastAPI backend"""
     # Get current settings and user info
     user_id = cl.user_session.get("user_id")
     backend_thread_id = cl.user_session.get("backend_thread_id")
@@ -122,6 +276,61 @@ async def on_message(message: cl.Message):
     except Exception as e:
         await cl.Message(
             content=f"❌ An error occurred: {str(e)}"
+        ).send()
+
+async def handle_direct_mode(message: cl.Message):
+    """Handle messages using direct OpenAI API + Chainlit MCP"""
+    chat_messages = cl.user_session.get("chat_messages", [])
+    enable_tools = cl.user_session.get("enable_tools", True)
+    
+    # Add user message to history
+    chat_messages.append({"role": "user", "content": message.content})
+    
+    # Combine OpenAI Agent tools with MCP tools
+    all_tools = []
+    if enable_tools:
+        # Add OpenAI Agent tools (web search, code interpreter, etc.)
+        all_tools.extend(OPENAI_AGENT_TOOLS)
+        
+        # Add MCP tools
+        mcp_tools = cl.user_session.get("mcp_tools", {})
+        for connection_tools in mcp_tools.values():
+            for tool in connection_tools:
+                # Convert MCP tool format to OpenAI format
+                openai_tool = {
+                    "type": "function",
+                    "function": {
+                        "name": tool["name"],
+                        "description": tool["description"],
+                        "parameters": tool["input_schema"]
+                    }
+                }
+                all_tools.append(openai_tool)
+    
+    # Call OpenAI with combined tools
+    msg = cl.Message(content="")
+    
+    try:
+        response = await openai_client.chat.completions.create(
+            model="gpt-4-1106-preview",
+            messages=[{"role": "system", "content": AGENT_INSTRUCTIONS}] + chat_messages,
+            tools=all_tools if all_tools else None,
+            stream=True
+        )
+        
+        async for chunk in response:
+            if chunk.choices[0].delta.content:
+                await msg.stream_token(chunk.choices[0].delta.content)
+        
+        await msg.send()
+        
+        # Add assistant response to history
+        chat_messages.append({"role": "assistant", "content": msg.content})
+        cl.user_session.set("chat_messages", chat_messages)
+        
+    except Exception as e:
+        await cl.Message(
+            content=f"❌ Direct mode error: {str(e)}"
         ).send()
 
 async def handle_streaming_response(client: httpx.AsyncClient, endpoint: str, request_data: Dict[str, Any], user_message: cl.Message):

@@ -33,6 +33,32 @@ multi_modal = true
     # See all languages here https://github.com/JamesBrill/react-speech-recognition/blob/HEAD/docs/API.md#language-string
     # language = "en-US"
 
+# MCP (Model Context Protocol) configuration
+[features.mcp]
+    # Enable MCP support
+    enabled = true
+
+[features.mcp.sse]
+    # Enable Server-Sent Events MCP connections
+    enabled = true
+
+[features.mcp.stdio]
+    # Enable stdio MCP connections (for local commands)
+    enabled = true
+    # Allowed executables for security
+    allowed_executables = ["npx", "uvx", "python"]
+
+# MCP Server Configurations
+[[features.mcp.servers]]
+name = "simple_sse"
+transport = "sse"
+url = "http://mcp_server:8000/mcp/"
+
+[[features.mcp.servers]]
+name = "everything"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-everything"]
+
 [UI]
 # Name of the assistant.
 name = "MarketGuru 2.0"
