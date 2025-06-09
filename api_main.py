@@ -399,6 +399,11 @@ async def shutdown_event():
     await db_manager.close()
     print("Database connection pool closed")
 
+# Health check endpoint for Docker
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "MarketGuru Agent API"}
+
 if __name__ == "__main__":
     # This part is for direct execution testing, not for uvicorn deployment
     # For uvicorn, run: uvicorn api_main:app --reload

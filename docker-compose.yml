@@ -36,6 +36,28 @@ services:
     networks:
       - app_network
 
+  chainlit_ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.chainlit
+    container_name: marketguru_chainlit_ui
+    ports:
+      - "8002:8002"
+    env_file:
+      - .env
+    environment:
+      - API_BASE_URL=http://agent_app:8001
+      - DEFAULT_HISTORY_MODE=${DEFAULT_HISTORY_MODE:-api}
+      - CHAINLIT_AUTH_SECRET=your_super_secret_jwt_key_here_change_in_production_12345
+      - LITERAL_API_KEY=${LITERAL_API_KEY:-}
+    volumes:
+      - ./chainlit_app.py:/app/chainlit_app.py  # For live reload
+      - ./.chainlit:/app/.chainlit  # For config
+    depends_on:
+      - agent_app
+    networks:
+      - app_network
+
 networks:
   app_network:
     driver: bridge
