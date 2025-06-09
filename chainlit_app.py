@@ -40,7 +40,7 @@ async def on_chat_start():
     
     # Send welcome message
     await cl.Message(
-        content="👋 Welcome to MarketGuru 2.0! I'm your AI assistant with access to various tools:\n\n- 🔍 Web searches\n- 💻 Code interpretation and analysis\n- 🧮 Mathematical calculations\n- 💬 General conversations\n\nStart chatting! Your conversations will appear in the sidebar."
+        content="👋 Welcome to MarketGuru 2.0! I'm your AI assistant with access to various tools:\n\n- 🔍 Web searches\n- 💻 Code interpretation and analysis\n- 🧮 Mathematical calculations\n- 💬 General conversations\n\n**💾 Full Conversation Memory Enabled** - I'll remember our entire conversation history!\n\nStart chatting! Your conversations will appear in the sidebar."
     ).send()
     
     # Show settings
@@ -48,9 +48,9 @@ async def on_chat_start():
         Select(
             id="history_mode",
             label="History Mode",
-            values=["api", "local_text", "none"],
+            values=["local_text", "api", "none"],
             initial_index=0,
-            description="How to handle conversation history"
+            description="local_text: Full conversation memory (default) | api: OpenAI threading | none: No memory"
         ),
         Switch(
             id="enable_tools",
@@ -73,8 +73,14 @@ async def setup_agent(settings):
     cl.user_session.set("enable_tools", settings["enable_tools"])
     cl.user_session.set("streaming", settings["streaming"])
     
+    memory_desc = {
+        "local_text": "Full conversation memory (saves everything to database)",
+        "api": "OpenAI threading (token-efficient)",
+        "none": "No memory (fresh conversation each time)"
+    }
+    
     await cl.Message(
-        content=f"✅ Settings updated:\n- History Mode: {settings['history_mode']}\n- Tools: {'Enabled' if settings['enable_tools'] else 'Disabled'}\n- Streaming: {'Enabled' if settings['streaming'] else 'Disabled'}"
+        content=f"✅ Settings updated:\n- History Mode: **{settings['history_mode']}** - {memory_desc.get(settings['history_mode'], settings['history_mode'])}\n- Tools: {'Enabled' if settings['enable_tools'] else 'Disabled'}\n- Streaming: {'Enabled' if settings['streaming'] else 'Disabled'}"
     ).send()
 
 @cl.on_message

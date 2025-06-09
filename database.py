@@ -25,7 +25,7 @@ class DatabaseManager:
                 min_size=1,
                 max_size=10,
                 command_timeout=60,
-                statement_cache_size=100  # Enable prepared statements for local PostgreSQL
+                statement_cache_size=0  # Disable prepared statements to avoid conflicts
             )
             await self.ensure_schema()
     
