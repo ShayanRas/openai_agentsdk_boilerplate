@@ -9,7 +9,8 @@
       "WebFetch(domain:docs.chainlit.io)",
       "WebFetch(domain:docs.chainlit.io)",
       "Bash(chainlit:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

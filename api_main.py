@@ -402,7 +402,7 @@ async def shutdown_event():
 # Health check endpoint for Docker
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "MarketGuru Agent API"}
+    return {"status": "healthy", "service": "OpenAI Agents SDK Boilerplate API"}
 
 if __name__ == "__main__":
     # This part is for direct execution testing, not for uvicorn deployment

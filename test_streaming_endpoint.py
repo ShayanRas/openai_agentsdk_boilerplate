@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script for the streaming endpoint of the MarketGuru 2.0 API.
+Test script for the streaming endpoint of the OpenAI Agents SDK Boilerplate API.
 
 Usage:
     python test_streaming_endpoint.py
@@ -180,7 +180,7 @@ def test_with_history():
                         print("\n[Second message complete]")
 
 if __name__ == "__main__":
-    print("MarketGuru 2.0 Streaming Endpoint Test")
+    print("OpenAI Agents SDK Boilerplate Streaming Endpoint Test")
     print("Make sure the API is running at http://localhost:8001")
     
     try:

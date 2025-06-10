@@ -58,7 +58,7 @@ OPENAI_AGENT_TOOLS = [
 
 # System prompt for direct mode (from instructions.py)
 AGENT_INSTRUCTIONS = """
-You are MarketGuru 2.0, an advanced AI assistant with access to multiple tools and capabilities.
+You are an advanced AI assistant powered by OpenAI Agents SDK with access to multiple tools and capabilities.
 
 Core Capabilities:
 - Web search for current information and market data
@@ -105,7 +105,7 @@ async def on_chat_start():
     
     # Send welcome message
     await cl.Message(
-        content="👋 Welcome to MarketGuru 2.0! I'm your AI assistant with access to various tools:\n\n- 🔍 Web searches\n- 💻 Code interpretation and analysis\n- 🧮 Mathematical calculations\n- 💬 General conversations\n\n**💾 Full Conversation Memory Enabled** - I'll remember our entire conversation history!\n\nStart chatting! Your conversations will appear in the sidebar."
+        content="👋 Welcome to OpenAI Agents SDK Boilerplate! I'm your AI assistant with access to various tools:\n\n- 🔍 Web searches\n- 💻 Code interpretation and analysis\n- 🧮 Mathematical calculations\n- 💬 General conversations\n\n**💾 Full Conversation Memory Enabled** - I'll remember our entire conversation history!\n\nStart chatting! Your conversations will appear in the sidebar."
     ).send()
     
     # Show settings

@@ -2,7 +2,7 @@
 services:
   postgres:
     image: postgres:15
-    container_name: marketguru_postgres
+    container_name: openai_agentsdk_postgres
     env_file:
       - .env
     environment:
@@ -14,13 +14,13 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
-      - app_network
+      - openai_agentsdk_network
 
   agent_app:
     build:
       context: .
       dockerfile: Dockerfile.agent
-    container_name: marketguru_agent_app
+    container_name: openai_agentsdk_agent_app
     ports:
       - "8001:8001"
     env_file:
@@ -39,25 +39,25 @@ services:
       - postgres
       - mcp_server
     networks:
-      - app_network
+      - openai_agentsdk_network
 
   mcp_server:
     build:
       context: .
       dockerfile: Dockerfile.mcp
-    container_name: marketguru_mcp_server
+    container_name: openai_agentsdk_mcp_server
     ports:
       - "8000:8000"
     volumes:
       - ./test_mcp_server.py:/app/test_mcp_server.py # For live reload (if server supports it)
     networks:
-      - app_network
+      - openai_agentsdk_network
 
   chainlit_ui:
     build:
       context: .
       dockerfile: Dockerfile.chainlit
-    container_name: marketguru_chainlit_ui
+    container_name: openai_agentsdk_chainlit_ui
     ports:
       - "8002:8002"
     env_file:
@@ -74,10 +74,10 @@ services:
       - postgres
       - agent_app
     networks:
-      - app_network
+      - openai_agentsdk_network
 
 networks:
-  app_network:
+  openai_agentsdk_network:
     driver: bridge
 
 volumes:

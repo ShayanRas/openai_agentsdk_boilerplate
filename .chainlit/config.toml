@@ -61,10 +61,10 @@ args = ["-y", "@modelcontextprotocol/server-everything"]
 
 [UI]
 # Name of the assistant.
-name = "MarketGuru 2.0"
+name = "OpenAI Agents SDK Boilerplate"
 
 # Description of the assistant.
-description = "AI Assistant powered by OpenAI with web search and code interpretation capabilities"
+description = "Multi-modal agentic AI boilerplate with OpenAI Agents SDK, Chainlit UI, and MCP integration"
 
 # Large size content are by default collapsed for a cleaner ui
 default_collapse_content = true
