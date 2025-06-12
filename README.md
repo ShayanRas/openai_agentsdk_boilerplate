@@ -412,18 +412,6 @@ CREATE TABLE agent.text_history (
 );
 ```
 
-### Choosing the Right Mode
-
-| Scenario | Recommended Mode | Reason |
-|----------|------------------|---------|
-| **Production App** | `local_text` | Reliable, permanent history |
-| **Cost Optimization** | `api` | Lower token usage |
-| **Development/Testing** | `local_text` | Better debugging |
-| **One-off Questions** | `none` | No persistence needed |
-| **Long Conversations** | `local_text` | No 30-day expiry limit |
-| **High Volume** | `api` | Reduced storage costs |
-
----
 
 ## 🔗 MCP Integration
 
@@ -513,17 +501,6 @@ if __name__ == "__main__":
     mcp.run()
 ```
 
-### MCP Best Practices
-
-1. **Security**: Only connect to trusted MCP servers
-2. **Error Handling**: MCP tools can fail; handle gracefully
-3. **Documentation**: Document your custom tools clearly
-4. **Testing**: Test MCP connections before production
-5. **Monitoring**: Log MCP tool usage for debugging
-
----
-
-## 🛠️ Development
 
 ### Project Structure
 
@@ -1023,101 +1000,4 @@ curl http://localhost:8001/tools/available
 # 3. Verify tool imports in openai_tools.py
 ```
 
-### Performance Issues
-
-#### **Slow responses:**
-1. **Check OpenAI API latency** - try different model
-2. **Database performance** - check connection pool size
-3. **Memory usage** - monitor container resources
-4. **Tool execution time** - optimize or timeout long-running tools
-
-#### **High memory usage:**
-1. **Reduce conversation history** - use `api` mode instead of `local_text`
-2. **Limit concurrent connections** - adjust connection pool
-3. **Optimize tool outputs** - truncate large responses
-
-#### **Database performance:**
-```sql
--- Check slow queries
-SELECT query, mean_time, calls 
-FROM pg_stat_statements 
-ORDER BY mean_time DESC LIMIT 10;
-
--- Optimize with indexes
-CREATE INDEX idx_threads_user_id ON agent.threads(user_id);
-CREATE INDEX idx_text_history_thread_id ON agent.text_history(thread_id);
-```
-
-### Getting Help
-
-1. **Check logs first:**
-   ```bash
-   docker-compose logs -f
-   ```
-
-2. **Enable debug logging:**
-   ```bash
-   # .env
-   LOG_LEVEL=DEBUG
-   ```
-
-3. **Test individual components:**
-   ```bash
-   # Test API directly
-   curl -X POST http://localhost:8001/invoke \
-     -H "Content-Type: application/json" \
-     -d '{"user_input": "Hello", "history_mode": "none"}'
-   ```
-
-4. **Reset everything:**
-   ```bash
-   docker-compose down -v
-   docker-compose up --build
-   ```
-
----
-
-## 📞 Support & Contributing
-
-### Getting Help
-
-- 🐛 **Bug Reports**: [Create an Issue](https://github.com/your-username/openai-agentsdk-boilerplate/issues)
-- 💡 **Feature Requests**: [Request Feature](https://github.com/your-username/openai-agentsdk-boilerplate/issues)
-- 📖 **Documentation**: This README + inline code comments
-- 💬 **Discussions**: [GitHub Discussions](https://github.com/your-username/openai-agentsdk-boilerplate/discussions)
-
-### Contributing
-
-1. **Fork the repository**
-2. **Create feature branch**: `git checkout -b feature/amazing-feature`
-3. **Commit changes**: `git commit -m 'Add amazing feature'`
-4. **Push to branch**: `git push origin feature/amazing-feature`
-5. **Open Pull Request**
-
-### License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- **[OpenAI](https://openai.com)** - For the Agents SDK and API
-- **[Chainlit](https://chainlit.io)** - For the beautiful UI framework
-- **[Model Context Protocol](https://modelcontextprotocol.io)** - For tool integration standard
-- **[FastAPI](https://fastapi.tiangolo.com)** - For the high-performance API framework
-
----
-
-## 📊 Project Stats
-
-![Docker Pulls](https://img.shields.io/docker/pulls/your-username/openai-agentsdk-boilerplate)
-![GitHub stars](https://img.shields.io/github/stars/your-username/openai-agentsdk-boilerplate)
-![GitHub forks](https://img.shields.io/github/forks/your-username/openai-agentsdk-boilerplate)
-![GitHub issues](https://img.shields.io/github/issues/your-username/openai-agentsdk-boilerplate)
-
----
-
-**Built with ❤️ by [Shayan Rastgou](https://github.com/your-username)**
-
-*Ready to build the next generation of AI applications? Fork this repo and get started! 🚀*
+**Built with ❤️ by [Shayan Rastgou](https://github.com/ShayanRas)**
