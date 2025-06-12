@@ -342,7 +342,6 @@ Storage: PostgreSQL database
 Memory: Complete conversation history
 Tokens: Higher usage (full context replay)
 Persistence: Permanent until manually deleted
-Reliability: 100% - never loses context
 Best For: Production, important conversations
 ```
 
@@ -358,7 +357,6 @@ Storage: OpenAI's servers + response ID tracking
 Memory: OpenAI's native conversation threading
 Tokens: Lower usage (OpenAI manages context)
 Persistence: 30 days (OpenAI's limitation)
-Reliability: 95% - depends on OpenAI availability
 Best For: Cost optimization, temporary conversations
 ```
 
