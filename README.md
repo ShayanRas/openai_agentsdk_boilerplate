@@ -49,19 +49,19 @@ docker-compose up --build
 
 ---
 
-## 🎯 Features Overview
+## Features Overview
 
 ### Core Capabilities
-- **🤖 OpenAI Agents SDK** - Production-grade agent execution
-- **🎨 Chainlit Web UI** - Beautiful, interactive chat interface
-- **🔍 Web Search** - Real-time information retrieval
-- **💻 Code Interpreter** - Python execution and analysis
-- **🔗 MCP Tools** - Extensible external tool integration
-- **📁 Multi-modal Support** - Text, images, and file uploads
-- **💾 Persistent Memory** - Three conversation history modes
-- **🔄 Streaming Responses** - Real-time token-by-token output
-- **👥 Multi-user Support** - User-scoped conversations
-- **🐳 Docker Ready** - One-command deployment
+- **OpenAI Agents SDK** - Production-grade agent execution
+- **Chainlit Web UI** - Beautiful, interactive chat interface
+- **Web Search** - Real-time information retrieval
+- **Code Interpreter** - Python execution and analysis
+- **MCP Tools** - Extensible external tool integration
+- **Multi-modal Support** - Text, images, and file uploads
+- **Persistent Memory** - Three conversation history modes
+- **Streaming Responses** - Real-time token-by-token output
+- **Multi-user Support** - User-scoped conversations
+- **Docker Ready** - One-command deployment
 
 ### Advanced Features
 - **Dual Agent Modes**: Backend (full SDK) vs Direct (Chainlit native)
