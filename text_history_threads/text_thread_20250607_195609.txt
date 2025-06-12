@@ -1,6 +1,0 @@
-User: my name is Shayan. ok?
-Assistant: Hello, Shayan! Got it—your name is Shayan. How can I assist you today?
-
-User: What is my name?
-Assistant: Your name is Shayan. How can I help you today?
-
