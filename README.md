@@ -31,24 +31,6 @@ docker-compose up --build
 - 🔧 **API Endpoints**: http://localhost:8001
 - 🛠️ **MCP Tools**: http://localhost:8000
 
----
-
-## 📋 Table of Contents
-
-- [Features Overview](#-features-overview)
-- [Architecture](#-architecture)
-- [Getting Started](#-getting-started)
-- [Usage Guide](#-usage-guide)
-- [Chainlit UI vs API Endpoints](#-chainlit-ui-vs-api-endpoints)
-- [History Management](#-history-management)
-- [MCP Integration](#-mcp-integration)
-- [Development](#-development)
-- [Deployment](#-deployment)
-- [Configuration](#-configuration)
-- [Troubleshooting](#-troubleshooting)
-
----
-
 ## Features Overview
 
 ### Core Capabilities
