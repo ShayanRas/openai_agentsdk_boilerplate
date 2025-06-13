@@ -31,10 +31,10 @@ services:
     volumes:
       - ./api_history_threads:/app/api_history_threads
       - ./text_history_threads:/app/text_history_threads
-      - ./api_main.py:/app/api_main.py  # For live reload
-      - ./instructions.py:/app/instructions.py # For live reload
-      - ./database.py:/app/database.py # For live reload
-      - ./openai_tools.py:/app/openai_tools.py # For live reload
+      - ./src/api_main.py:/app/api_main.py  # For live reload
+      - ./src/instructions.py:/app/instructions.py # For live reload
+      - ./src/database.py:/app/database.py # For live reload
+      - ./src/openai_tools.py:/app/openai_tools.py # For live reload
     depends_on:
       - postgres
       - mcp_server
@@ -49,7 +49,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./test_mcp_server.py:/app/test_mcp_server.py # For live reload (if server supports it)
+      - ./src/test_mcp_server.py:/app/test_mcp_server.py # For live reload (if server supports it)
     networks:
       - openai_agentsdk_network
 
@@ -68,7 +68,7 @@ services:
       - CHAINLIT_AUTH_SECRET=${CHAINLIT_AUTH_SECRET}
       - DATABASE_URL=${DATABASE_URL}
     volumes:
-      - ./chainlit_app.py:/app/chainlit_app.py  # For live reload
+      - ./src/chainlit_app.py:/app/chainlit_app.py  # For live reload
       - ./.chainlit:/app/.chainlit  # For config
     depends_on:
       - postgres

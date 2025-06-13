@@ -92,8 +92,8 @@ class CustomAgentHooks(AgentHooks):
 # --- FastAPI App Setup ---
 app = FastAPI()
 
-# TODO: Make MCP server URL configurable
-MCP_SERVER_URL = "http://mcp_server:8000/mcp"  # Updated for Docker Compose service name
+# MCP server URL - configurable for production
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://mcp_server:8000/mcp")
 
 @app.post("/invoke", response_model=InvokeResponse)
 async def invoke_agent(request: InvokeRequest):
@@ -327,6 +327,9 @@ async def invoke_agent_stream(request: InvokeRequest):
         except Exception as e:
             print(f"Error during streaming: {e}")
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        finally:
+            # Ensure the stream always ends properly
+            yield f"data: {json.dumps({'type': 'stream_end'})}\n\n"
     
     return StreamingResponse(
         generate_stream(),
@@ -391,13 +394,44 @@ async def invoke_with_specific_tools(request: InvokeRequest):
 # Lifecycle management for database connections
 @app.on_event("startup")
 async def startup_event():
-    await db_manager.initialize()
-    print("Database connection pool initialized")
+    print("🚀 [AGENT-API] Starting up...")
+    print(f"🔧 [AGENT-API] OpenAI API Key configured: {'✅ Yes' if OPENAI_API_KEY else '❌ No'}")
+    print(f"🔧 [AGENT-API] MCP Server URL: {MCP_SERVER_URL}")
+    
+    # Test database connection
+    try:
+        await db_manager.initialize()
+        print("✅ [AGENT-API] Database connection pool initialized successfully")
+    except Exception as e:
+        print(f"❌ [AGENT-API] Database connection failed: {e}")
+        raise
+    
+    # Test MCP server connection
+    try:
+        import httpx
+        if MCP_SERVER_URL.endswith('/mcp'):
+            health_url = MCP_SERVER_URL[:-4] + '/health'
+        else:
+            health_url = MCP_SERVER_URL.rstrip('/') + '/health'
+        
+        print(f"🔧 [AGENT-API] Testing MCP server health at: {health_url}")
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(health_url)
+            if response.status_code == 200:
+                print("✅ [AGENT-API] MCP Server connection successful")
+            else:
+                print(f"⚠️ [AGENT-API] MCP Server health check responded with status {response.status_code}")
+    except Exception as e:
+        print(f"❌ [AGENT-API] MCP Server connection failed: {e}")
+        print("⚠️ [AGENT-API] Will continue without MCP tools")
+    
+    print("🎉 [AGENT-API] Startup complete!")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     await db_manager.close()
-    print("Database connection pool closed")
+    print("👋 [AGENT-API] Database connection pool closed")
 
 # Health check endpoint for Docker
 @app.get("/health")

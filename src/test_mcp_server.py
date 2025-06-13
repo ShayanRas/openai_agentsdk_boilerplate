@@ -11,8 +11,10 @@ from mcp.server.streamable_http import EventStore, EventCallback, EventId, Event
 from mcp.types import JSONRPCMessage # For InMemoryEventStore
 
 from starlette.applications import Starlette
-from starlette.routing import Mount
+from starlette.routing import Mount, Route
 from starlette.types import Receive, Scope, Send
+from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
 import uvicorn
 
 # --- Environment Variables ---
@@ -167,21 +169,49 @@ session_manager = StreamableHTTPSessionManager(
 async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
     await session_manager.handle_request(scope, receive, send)
 
+async def health_check(request):
+    """Health check endpoint for Render"""
+    return JSONResponse({"status": "healthy", "service": "MCP Server"})
+
 @contextlib.asynccontextmanager
 async def lifespan(app: Starlette) -> AsyncIterator[None]:
-    async with session_manager.run():
-        logger.info(f"Application started with StreamableHTTPSessionManager on {SERVER_HOST}:{SERVER_PORT}")
-        try:
-            yield
-        finally:
-            logger.info("Application shutting down...")
+    print("🚀 [MCP-SERVER] Starting up...")
+    print(f"🔧 [MCP-SERVER] Server Host: {SERVER_HOST}")
+    print(f"🔧 [MCP-SERVER] Server Port: {SERVER_PORT}")
+    print(f"🔧 [MCP-SERVER] Log Level: {LOG_LEVEL}")
+    
+    try:
+        async with session_manager.run():
+            print("✅ [MCP-SERVER] StreamableHTTPSessionManager initialized successfully")
+            print(f"✅ [MCP-SERVER] Available tools: echo, add, get_server_time")
+            print(f"🌐 [MCP-SERVER] Health check available at: http://{SERVER_HOST}:{SERVER_PORT}/health")
+            print(f"🌐 [MCP-SERVER] MCP endpoint available at: http://{SERVER_HOST}:{SERVER_PORT}/mcp")
+            print(f"🎉 [MCP-SERVER] Startup complete! Ready to handle MCP requests")
+            try:
+                yield
+            finally:
+                print("🛑 [MCP-SERVER] Shutting down...")
+                print("👋 [MCP-SERVER] Shutdown complete!")
+    except Exception as e:
+        print(f"❌ [MCP-SERVER] Startup failed: {e}")
+        raise
 
 starlette_app = Starlette(
     debug=LOG_LEVEL == "DEBUG", # Set Starlette debug mode based on log level
     routes=[
+        Route("/health", health_check),
         Mount("/mcp", app=handle_streamable_http),
     ],
     lifespan=lifespan,
+)
+
+# Add CORS middleware
+starlette_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 if __name__ == "__main__":

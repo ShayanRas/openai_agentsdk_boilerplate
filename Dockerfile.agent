@@ -1,4 +1,4 @@
-# Agent Service Dockerfile
+# Agent Service Dockerfile - Production optimized
 FROM python:3.11-slim
 
 # Set environment variables for Python
@@ -15,16 +15,14 @@ COPY requirements.agent.txt .
 RUN pip install --no-cache-dir -r requirements.agent.txt
 
 # Copy the application code for the agent service
-# We'll copy specific files needed by the agent app
-COPY api_main.py .
-COPY instructions.py .
-COPY database.py .
-COPY openai_tools.py .
-# If AgentCustomContext or other shared models are in separate files, copy them too.
-# Assuming for now they are within api_main.py or instructions.py
+# Copy source files from src directory
+COPY src/api_main.py .
+COPY src/instructions.py .
+COPY src/database.py .
+COPY src/openai_tools.py .
 
 # Expose port for the FastAPI app
 EXPOSE 8001
 
-# Command to run the Uvicorn server for the agent app
-CMD ["uvicorn", "api_main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+# Command to run the Uvicorn server for the agent app (no reload in production)
+CMD ["uvicorn", "api_main:app", "--host", "0.0.0.0", "--port", "8001"]

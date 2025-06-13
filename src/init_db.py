@@ -34,22 +34,12 @@ async def wait_for_postgres(max_attempts=30):
 
 def run_prisma_migrate():
     """Run Prisma migrations to set up database schema"""
-    print("Running Prisma database migrations...")
+    print("🔧 [CHAINLIT-DB] Setting up Prisma database schema...")
     
-    # Generate Prisma client
-    result = subprocess.run(
-        ["python", "-m", "prisma", "generate"],
-        capture_output=True,
-        text=True
-    )
+    # Check if Prisma client is already generated (from build time)
+    print("✓ [CHAINLIT-DB] Prisma client already generated during build")
     
-    if result.returncode != 0:
-        print(f"Prisma generate failed: {result.stderr}")
-        return False
-    
-    print("✓ Prisma client generated")
-    
-    # Run migrations
+    # Only run schema push (lightweight operation)
     result = subprocess.run(
         ["python", "-m", "prisma", "db", "push"],
         capture_output=True,
@@ -57,27 +47,31 @@ def run_prisma_migrate():
     )
     
     if result.returncode != 0:
-        print(f"Prisma db push failed: {result.stderr}")
+        print(f"❌ [CHAINLIT-DB] Prisma db push failed: {result.stderr}")
         return False
     
-    print("✓ Database schema created successfully!")
+    print("✅ [CHAINLIT-DB] Database schema created successfully!")
     return True
 
 async def main():
     """Initialize the database"""
+    print("🚀 [CHAINLIT-DB] Database initialization starting...")
+    print(f"🔧 [CHAINLIT-DB] DATABASE_URL configured: {'✅ Yes' if os.getenv('DATABASE_URL') else '❌ No'}")
+    
     try:
-        # Wait for PostgreSQL to be ready
+        print("🔧 [CHAINLIT-DB] Testing PostgreSQL connection...")
         await wait_for_postgres()
+        print("✅ [CHAINLIT-DB] PostgreSQL connection successful")
         
-        # Run Prisma migrations
+        print("🔧 [CHAINLIT-DB] Setting up Chainlit database schema...")
         if run_prisma_migrate():
-            print("🎉 Database initialization complete!")
+            print("✅ [CHAINLIT-DB] Chainlit schema created successfully")
+            print("🎉 [CHAINLIT-DB] Database initialization complete!")
         else:
-            print("❌ Database initialization failed!")
+            print("❌ [CHAINLIT-DB] Database initialization failed!")
             exit(1)
-            
     except Exception as e:
-        print(f"❌ Error initializing database: {e}")
+        print(f"❌ [CHAINLIT-DB] Error initializing database: {e}")
         exit(1)
 
 if __name__ == "__main__":

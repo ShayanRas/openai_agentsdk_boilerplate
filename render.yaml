@@ -1,0 +1,64 @@
+databases:
+- name: postgres
+  databaseName: castforge_db
+  user: castforge_user
+  ipAllowList: []
+  plan: basic-1gb
+  diskSizeGB: 10
+
+services:
+# MCP Server - Internal service for tools
+- type: web
+  name: mcp-server
+  runtime: docker
+  dockerfilePath: ./Dockerfile.mcp
+  plan: starter
+  healthCheckPath: /health
+  envVars:
+  - key: PORT
+    value: 8000
+  - key: HOST
+    value: 0.0.0.0
+  - key: LOG_LEVEL
+    value: INFO
+
+# Agent API - Internal FastAPI backend
+- type: web
+  name: agent-api
+  runtime: docker
+  dockerfilePath: ./Dockerfile.agent
+  plan: starter
+  healthCheckPath: /health
+  envVars:
+  - key: PORT
+    value: 8001
+  - key: OPENAI_API_KEY
+    sync: false # Set manually in dashboard
+  - key: MCP_SERVER_URL
+    sync: false # Set manually in dashboard
+  - key: DATABASE_URL
+    fromDatabase:
+      name: postgres
+      property: connectionString
+
+# Chainlit Web UI - Public web service
+- type: web
+  name: web
+  runtime: docker
+  dockerfilePath: ./Dockerfile.chainlit
+  plan: standard  # Upgraded for Prisma memory requirements
+  domains:
+  - demo.castforge.ca
+  envVars:
+  - key: PORT
+    value: 8002
+  - key: API_BASE_URL
+    sync: false # Set manually in dashboard
+  - key: DEFAULT_HISTORY_MODE
+    value: local_text
+  - key: CHAINLIT_AUTH_SECRET
+    generateValue: true
+  - key: DATABASE_URL
+    fromDatabase:
+      name: postgres
+      property: connectionString

@@ -1,4 +1,4 @@
-# MCP Server Dockerfile
+# MCP Server Dockerfile - Production optimized
 FROM python:3.11-slim
 
 # Set environment variables for Python
@@ -15,7 +15,7 @@ COPY requirements.mcp.txt .
 RUN pip install --no-cache-dir -r requirements.mcp.txt
 
 # Copy the application code for the MCP service
-COPY test_mcp_server.py .
+COPY src/test_mcp_server.py .
 
 # Set environment variables for host and port (for mcp_server.run() fallback)
 ENV HOST 0.0.0.0

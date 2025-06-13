@@ -1,4 +1,4 @@
-# Chainlit Frontend Dockerfile
+# Chainlit Frontend Dockerfile - Production optimized
 FROM python:3.11-slim
 
 # Set environment variables for Python
@@ -25,15 +25,18 @@ COPY requirements.chainlit.txt .
 RUN pip install --no-cache-dir -r requirements.chainlit.txt
 
 # Copy the Chainlit application files
-COPY chainlit_app.py .
+COPY src/chainlit_app.py .
 COPY schema.prisma .
-COPY init_db.py .
+COPY src/init_db.py .
 
 # Create .chainlit directory for config
 RUN mkdir -p .chainlit
 
 # Copy config file
 COPY .chainlit/config.toml .chainlit/
+
+# Generate Prisma client at build time to save memory at runtime
+RUN python -m prisma generate
 
 # Expose port for Chainlit (default is 8000, but we'll use 8002)
 EXPOSE 8002

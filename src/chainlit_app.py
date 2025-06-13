@@ -11,6 +11,14 @@ import openai
 
 load_dotenv()
 
+# Startup logging
+print("🚀 [CHAINLIT-WEB] Chainlit application starting...")
+print(f"🔧 [CHAINLIT-WEB] OpenAI API Key configured: {'✅ Yes' if os.getenv('OPENAI_API_KEY') else '❌ No'}")
+print(f"🔧 [CHAINLIT-WEB] API Base URL: {os.getenv('API_BASE_URL', 'http://agent_app:8001')}")
+print(f"🔧 [CHAINLIT-WEB] Default History Mode: {os.getenv('DEFAULT_HISTORY_MODE', 'local_text')}")
+print(f"🔧 [CHAINLIT-WEB] DATABASE_URL configured: {'✅ Yes' if os.getenv('DATABASE_URL') else '❌ No'}")
+print("✅ [CHAINLIT-WEB] Chainlit application configuration complete")
+
 # Initialize OpenAI client for direct mode
 openai_client = openai.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -89,6 +97,19 @@ def auth_callback(username: str, password: str):
 @cl.on_chat_start
 async def on_chat_start():
     """Initialize chat session"""
+    print("🔧 [CHAINLIT-WEB] New chat session starting...")
+    
+    # Test backend connection
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{API_BASE_URL}/health")
+            if response.status_code == 200:
+                print("✅ [CHAINLIT-WEB] Agent API connection successful")
+            else:
+                print(f"⚠️ [CHAINLIT-WEB] Agent API responded with status {response.status_code}")
+    except Exception as e:
+        print(f"❌ [CHAINLIT-WEB] Agent API connection failed: {e}")
+    
     # Get authenticated user
     user = cl.user_session.get("user")
     user_id = user.identifier if user else "demo_user"

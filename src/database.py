@@ -20,14 +20,21 @@ class DatabaseManager:
     async def initialize(self):
         """Initialize the database connection pool"""
         if not self.pool:
-            self.pool = await asyncpg.create_pool(
-                DATABASE_URL,
-                min_size=1,
-                max_size=10,
-                command_timeout=60,
-                statement_cache_size=0  # Disable prepared statements to avoid conflicts
-            )
-            await self.ensure_schema()
+            print(f"🔧 [DATABASE] Connecting to: {DATABASE_URL[:50]}...{'*' * 10}" if DATABASE_URL else "❌ [DATABASE] No DATABASE_URL provided")
+            try:
+                self.pool = await asyncpg.create_pool(
+                    DATABASE_URL,
+                    min_size=1,
+                    max_size=3,  # Reduced from 10 to 3 for basic plan
+                    command_timeout=60,
+                    statement_cache_size=0  # Disable prepared statements to avoid conflicts
+                )
+                print("✅ [DATABASE] Connection pool created successfully")
+                await self.ensure_schema()
+                print("✅ [DATABASE] Schema initialization complete")
+            except Exception as e:
+                print(f"❌ [DATABASE] Initialization failed: {e}")
+                raise
     
     async def close(self):
         """Close the database connection pool"""
